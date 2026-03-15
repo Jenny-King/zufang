@@ -8,43 +8,31 @@ const automator = require("miniprogram-automator");
 
 const DEFAULTS = {
   count: 8,
+  imageCountPerHouse: 3,
   cliPaths: [
     process.env.WECHAT_DEVTOOLS_CLI || "",
     path.join(process.env.LOCALAPPDATA || "", "wechat-devtools-bin", "cli.bat"),
     "C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat"
   ].filter(Boolean),
-  connectDelayMs: 10000,
-  connectRetries: 6,
+  connectDelayMs: 12000,
+  connectRetries: 12,
   connectRetryDelayMs: 5000,
   cliTimeoutMs: 180000,
   waitMs: {
     pageReady: 1500,
     submitDone: 3500,
-    storageDone: 1000,
-    cloudDone: 800
+    storageDone: 1000
   }
 };
 
-const HOUSE_TEMPLATES = [
-  { title: "南门地铁口阳光一室", price: 1100, area: 28, type: "一室", floor: "6/18", orientation: "南", paymentMethod: "月付", minRentPeriod: 3 },
-  { title: "校东门精装一室一厅", price: 1500, area: 45, type: "一室一厅", floor: "9/16", orientation: "东南", paymentMethod: "月付", minRentPeriod: 6 },
-  { title: "图书馆旁安静两室一厅", price: 1980, area: 68, type: "两室一厅", floor: "11/20", orientation: "南", paymentMethod: "季付", minRentPeriod: 6 },
-  { title: "体育馆附近拎包入住", price: 1680, area: 52, type: "一室一厅", floor: "7/15", orientation: "东", paymentMethod: "月付", minRentPeriod: 3 },
-  { title: "商业街旁通风一室", price: 980, area: 25, type: "一室", floor: "4/8", orientation: "北", paymentMethod: "月付", minRentPeriod: 1 },
-  { title: "地铁终点站品质两居", price: 2300, area: 75, type: "两室一厅", floor: "13/22", orientation: "南", paymentMethod: "季付", minRentPeriod: 6 },
-  { title: "江景高层三室及以上", price: 3200, area: 108, type: "三室及以上", floor: "18/26", orientation: "东南", paymentMethod: "半年付", minRentPeriod: 12 },
-  { title: "创业园附近通勤公寓", price: 1350, area: 36, type: "一室", floor: "5/12", orientation: "西南", paymentMethod: "月付", minRentPeriod: 3 }
-];
-
-const FACILITIES_LIST = [
-  ["wifi", "airConditioner", "washingMachine", "waterHeater", "bed", "wardrobe"],
-  ["wifi", "airConditioner", "refrigerator", "waterHeater", "balcony"],
-  ["elevator", "parking", "wifi", "airConditioner", "washingMachine", "security"],
-  ["wifi", "airConditioner", "bed", "wardrobe", "balcony"],
-  ["wifi", "waterHeater", "bed"],
-  ["elevator", "parking", "wifi", "airConditioner", "washingMachine", "refrigerator"],
-  ["elevator", "parking", "wifi", "airConditioner", "washingMachine", "refrigerator", "balcony", "security"],
-  ["wifi", "airConditioner", "washingMachine", "waterHeater", "gym"]
+const TEST_IMAGE_URLS = [
+  "https://images.pexels.com/photos/7173672/pexels-photo-7173672.jpeg?cs=srgb&dl=pexels-artbovich-7173672.jpg&fm=jpg",
+  "https://images.pexels.com/photos/6316054/pexels-photo-6316054.jpeg?cs=srgb&dl=pexels-artbovich-6316054.jpg&fm=jpg",
+  "https://images.pexels.com/photos/6580373/pexels-photo-6580373.jpeg?cs=srgb&dl=pexels-artbovich-6580373.jpg&fm=jpg",
+  "https://images.pexels.com/photos/6316053/pexels-photo-6316053.jpeg?cs=srgb&dl=pexels-artbovich-6316053.jpg&fm=jpg",
+  "https://images.pexels.com/photos/6758510/pexels-photo-6758510.jpeg?cs=srgb&dl=pexels-artbovich-6758510.jpg&fm=jpg",
+  "https://images.pexels.com/photos/6588578/pexels-photo-6588578.jpeg?cs=srgb&dl=pexels-artbovich-6588578.jpg&fm=jpg",
+  "https://images.pexels.com/photos/6436775/pexels-photo-6436775.jpeg?cs=srgb&dl=pexels-heyho-6436775.jpg&fm=jpg"
 ];
 
 function parseArgs(argv) {
@@ -213,7 +201,7 @@ async function startMiniProgram(options) {
     cliTimeoutMs
   } = options;
 
-  console.log(`[seed-house-test-data] 启动 DevTools auto, port=${port}`);
+  console.log(`[upload-house-test-images] 启动 DevTools auto, port=${port}`);
   const cliResult = await runCli(cliPath, [
     "auto",
     "--project",
@@ -284,67 +272,46 @@ function assertCloudSuccess(result, message) {
   }
 }
 
-function pickRegion(regions, index) {
-  if (!Array.isArray(regions) || !regions.length) {
-    return "";
-  }
-  return regions[index % regions.length].name || "";
+function buildImageUrlsForHouse(index, imageCountPerHouse) {
+  return Array.from({ length: imageCountPerHouse }).map((_, imageIndex) => (
+    TEST_IMAGE_URLS[(index + imageIndex) % TEST_IMAGE_URLS.length]
+  ));
 }
 
-function buildFacilities(index) {
-  const enabledKeys = FACILITIES_LIST[index % FACILITIES_LIST.length];
-  return enabledKeys.reduce((accumulator, key) => {
-    accumulator[key] = true;
-    return accumulator;
-  }, {});
-}
+async function uploadRemoteImage(miniProgram, options) {
+  const { url, cloudPath } = options;
+  return miniProgram.evaluate((targetUrl, targetCloudPath) => new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: targetUrl,
+      success(downloadRes) {
+        if (!downloadRes || downloadRes.statusCode !== 200 || !downloadRes.tempFilePath) {
+          reject({
+            message: `download failed: ${downloadRes ? downloadRes.statusCode : "unknown"}`
+          });
+          return;
+        }
 
-function buildHousePayloads(options) {
-  const { phone, nickName, regions, count } = options;
-  const basePhone = String(phone || "").trim();
-  const contactName = nickName || `房东${basePhone.slice(-4)}`;
-
-  return Array.from({ length: count }).map((_, index) => {
-    const template = HOUSE_TEMPLATES[index % HOUSE_TEMPLATES.length];
-    const region = pickRegion(regions, index);
-    const regionLabel = region || "校区";
-    const sequence = index + 1;
-
-    return {
-      title: `${template.title} ${sequence}号`,
-      price: template.price + (index % 3) * 120,
-      paymentMethod: template.paymentMethod,
-      minRentPeriod: template.minRentPeriod,
-      area: template.area + (index % 2) * 3,
-      type: template.type,
-      floor: template.floor,
-      orientation: template.orientation,
-      address: `${regionLabel} ${10 + sequence}栋 ${200 + sequence}室`,
-      description: `测试房源 ${sequence}：适合通勤与日常居住，采光良好，支持核心链路联调。`,
-      images: [],
-      latitude: 0,
-      longitude: 0,
-      contactName,
-      contactPhone: basePhone,
-      facilities: buildFacilities(index),
-      region
-    };
-  });
-}
-
-async function ensureLandlord(miniProgram, auth) {
-  const currentUser = await callCloud(miniProgram, "user", "getCurrentUser", {}, auth);
-  assertCloudSuccess(currentUser, "获取当前用户失败");
-
-  const role = currentUser.data && currentUser.data.role ? currentUser.data.role : "";
-  if (role === "landlord" || role === "admin") {
-    return currentUser.data;
-  }
-
-  const switched = await callCloud(miniProgram, "user", "switchRole", { role: "landlord" }, auth);
-  assertCloudSuccess(switched, "切换房东角色失败");
-  console.log("[seed-house-test-data] 当前账号原角色不是房东，已自动切换为 landlord");
-  return switched.data;
+        wx.cloud.uploadFile({
+          cloudPath: targetCloudPath,
+          filePath: downloadRes.tempFilePath
+        }).then((uploadRes) => {
+          resolve({
+            fileID: uploadRes.fileID || "",
+            cloudPath: targetCloudPath
+          });
+        }).catch((error) => {
+          reject({
+            message: error && error.errMsg ? error.errMsg : error && error.message ? error.message : "upload failed"
+          });
+        });
+      },
+      fail(error) {
+        reject({
+          message: error && error.errMsg ? error.errMsg : error && error.message ? error.message : "download failed"
+        });
+      }
+    });
+  }), url, cloudPath);
 }
 
 async function main() {
@@ -355,6 +322,10 @@ async function main() {
   const projectPath = path.resolve(readOption(args, "project", "WECHAT_PROJECT_PATH", process.cwd()));
   const port = await findFreePort(readOption(args, "port", "WECHAT_AUTO_PORT", ""));
   const count = Math.max(1, Number(readOption(args, "count", "SEED_HOUSE_COUNT", DEFAULTS.count)) || DEFAULTS.count);
+  const imageCountPerHouse = Math.max(
+    1,
+    Number(readOption(args, "images-per-house", "SEED_IMAGES_PER_HOUSE", DEFAULTS.imageCountPerHouse)) || DEFAULTS.imageCountPerHouse
+  );
 
   if (!phone || !password) {
     throw new Error("请通过 --phone 和 --password 提供账号信息");
@@ -362,17 +333,18 @@ async function main() {
 
   let miniProgram = null;
   try {
-    console.log(`[seed-house-test-data] project=${projectPath}`);
-    console.log(`[seed-house-test-data] phone=${phone}`);
-    console.log(`[seed-house-test-data] count=${count}`);
+    console.log(`[upload-house-test-images] project=${projectPath}`);
+    console.log(`[upload-house-test-images] phone=${phone}`);
+    console.log(`[upload-house-test-images] targetCount=${count}`);
+    console.log(`[upload-house-test-images] imagesPerHouse=${imageCountPerHouse}`);
 
     miniProgram = await startMiniProgram({
       cliPath,
       projectPath,
       port,
-      connectDelayMs: 12000,
-      connectRetries: 12,
-      connectRetryDelayMs: 5000,
+      connectDelayMs: DEFAULTS.connectDelayMs,
+      connectRetries: DEFAULTS.connectRetries,
+      connectRetryDelayMs: DEFAULTS.connectRetryDelayMs,
       cliTimeoutMs: DEFAULTS.cliTimeoutMs
     });
 
@@ -383,39 +355,60 @@ async function main() {
     }
 
     const auth = { accessToken: session.accessToken };
-    const userInfo = await ensureLandlord(miniProgram, auth);
-    const regionsResult = await callCloud(miniProgram, "house", "getRegions", {});
-    assertCloudSuccess(regionsResult, "获取区域列表失败");
-
-    const payloads = buildHousePayloads({
-      phone,
-      nickName: userInfo.nickName || "",
-      regions: regionsResult.data || [],
-      count
-    });
-
-    const createdIds = [];
-    for (let index = 0; index < payloads.length; index += 1) {
-      const createResult = await callCloud(miniProgram, "house", "create", payloads[index], auth);
-      assertCloudSuccess(createResult, `创建第 ${index + 1} 条房源失败`);
-      createdIds.push(createResult.data && createResult.data._id ? createResult.data._id : "");
-      console.log(`[seed-house-test-data] 已创建 ${index + 1}/${payloads.length}: ${payloads[index].title}`);
-      await sleep(DEFAULTS.waitMs.cloudDone);
-    }
-
     const mineResult = await callCloud(miniProgram, "house", "getMine", {
       page: 1,
       pageSize: Math.max(20, count + 5)
     }, auth);
     assertCloudSuccess(mineResult, "查询我的房源失败");
 
-    console.log("[seed-house-test-data] 创建完成");
+    const houses = Array.isArray(mineResult.data && mineResult.data.list)
+      ? mineResult.data.list.slice(0, count)
+      : [];
+    if (!houses.length) {
+      throw new Error("当前账号下没有可绑定图片的房源");
+    }
+
+    const updated = [];
+    for (let houseIndex = 0; houseIndex < houses.length; houseIndex += 1) {
+      const house = houses[houseIndex];
+      const houseId = String(house && house._id ? house._id : "");
+      const title = house && house.title ? house.title : `house_${houseIndex + 1}`;
+      if (!houseId) {
+        throw new Error(`第 ${houseIndex + 1} 条房源缺少 _id，无法更新图片`);
+      }
+
+      const urls = buildImageUrlsForHouse(houseIndex, imageCountPerHouse);
+      const images = [];
+      for (let imageIndex = 0; imageIndex < urls.length; imageIndex += 1) {
+        const cloudPath = `houses/${session.userInfo && session.userInfo.userId ? session.userInfo.userId : "seed"}/seed-images/${Date.now()}_${houseId}_${imageIndex}.jpg`;
+        const uploadResult = await uploadRemoteImage(miniProgram, {
+          url: urls[imageIndex],
+          cloudPath
+        });
+        if (!uploadResult || !uploadResult.fileID) {
+          throw new Error(`房源 ${title} 第 ${imageIndex + 1} 张图片上传失败`);
+        }
+        images.push(uploadResult.fileID);
+      }
+
+      const updateResult = await callCloud(miniProgram, "house", "update", {
+        houseId,
+        images
+      }, auth);
+      assertCloudSuccess(updateResult, `更新房源 ${title} 图片失败`);
+
+      updated.push({
+        houseId,
+        title,
+        imageCount: images.length
+      });
+      console.log(`[upload-house-test-images] 已绑定 ${houseIndex + 1}/${houses.length}: ${title}`);
+    }
+
+    console.log("[upload-house-test-images] 绑定完成");
     console.log(JSON.stringify({
-      userId: userInfo.userId || "",
-      role: userInfo.role || "landlord",
-      createdCount: createdIds.length,
-      createdIds,
-      currentTotal: Number(mineResult.data && mineResult.data.total ? mineResult.data.total : 0)
+      updatedCount: updated.length,
+      updated
     }, null, 2));
   } finally {
     if (miniProgram) {
@@ -426,14 +419,14 @@ async function main() {
           miniProgram.disconnect();
         }
       } catch {
-        // Ignore disconnect failures during cleanup.
+        // Ignore close failures during cleanup.
       }
     }
   }
 }
 
 main().catch((error) => {
-  console.error("[seed-house-test-data] 执行失败");
+  console.error("[upload-house-test-images] 执行失败");
   console.error(error && error.stack ? error.stack : error);
   process.exitCode = 1;
 });
