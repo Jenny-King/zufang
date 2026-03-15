@@ -3,7 +3,19 @@
 	"switch": true,
 	"configs": [
 		{
-			"path": "pages/index/index.js",
+			"path": "pages/home/index.js",
+			"sub_switch": true
+		},
+		{
+			"path": "pages/publish/edit.js",
+			"sub_switch": true
+		},
+		{
+			"path": "pages/chat/index.js",
+			"sub_switch": true
+		},
+		{
+			"path": "pages/profile/index.js",
 			"sub_switch": true
 		}
 	]

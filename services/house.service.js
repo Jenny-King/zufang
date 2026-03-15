@@ -59,6 +59,18 @@ async function getMyHouseList(params = {}) {
   return callCloud("house", "getMine", params);
 }
 
+async function uploadHouseImage(filePath, cloudPath) {
+  assertNonEmptyString(filePath, "filePath");
+  assertNonEmptyString(cloudPath, "cloudPath");
+
+  const uploadRes = await wx.cloud.uploadFile({
+    cloudPath: cloudPath.trim(),
+    filePath: filePath.trim()
+  });
+
+  return uploadRes.fileID;
+}
+
 module.exports = {
   getHouseList,
   getRegions,
@@ -66,5 +78,6 @@ module.exports = {
   createHouse,
   updateHouse,
   deleteHouse,
-  getMyHouseList
+  getMyHouseList,
+  uploadHouseImage
 };

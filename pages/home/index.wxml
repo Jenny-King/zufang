@@ -36,7 +36,7 @@
       data-house-id="{{item._id}}"
       bindtap="onGoDetail"
     >
-      <image class="house-image" src="{{item.images[0] || '/assets/images/house-placeholder.png'}}" mode="aspectFill" />
+      <image class="house-image" src="{{item.displayImage}}" mode="aspectFill" />
       <view class="house-main">
         <view class="house-title text-ellipsis">{{item.displayTitle}}</view>
         <view class="house-meta-row">

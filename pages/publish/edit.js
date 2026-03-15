@@ -550,11 +550,8 @@ Page({
       try {
         // 图片按顺序上传，便于稳定生成云存储路径并在失败时及时停止。
         // eslint-disable-next-line no-await-in-loop
-        const uploadRes = await wx.cloud.uploadFile({
-          cloudPath,
-          filePath: sourcePath
-        });
-        uploaded.push(uploadRes.fileID);
+        const fileID = await houseService.uploadHouseImage(sourcePath, cloudPath);
+        uploaded.push(fileID);
       } catch (error) {
         logger.error("publish_upload_single_failed", {
           index: i,

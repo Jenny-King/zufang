@@ -53,6 +53,10 @@ function hashToken(token) {
   return crypto.createHash("sha256").update(String(token || "")).digest("hex");
 }
 
+function hashPassword(password) {
+  return crypto.createHash("sha256").update(String(password || "")).digest("hex");
+}
+
 function sanitizeUser(user, wechatBound = false) {
   if (!user) {
     return null;
@@ -203,7 +207,7 @@ async function handleChangePassword(payload, event) {
   if (!oldPassword || !newPassword) {
     return fail("新旧密码不能为空");
   }
-  if (!authState.user.passwordHash || authState.user.passwordHash !== hashToken(oldPassword)) {
+  if (!authState.user.passwordHash || authState.user.passwordHash !== hashPassword(oldPassword)) {
     return fail("旧密码错误", 401);
   }
 
@@ -211,7 +215,7 @@ async function handleChangePassword(payload, event) {
     .doc(authState.user._id)
     .update({
       data: {
-        passwordHash: hashToken(newPassword),
+        passwordHash: hashPassword(newPassword),
         updateTime: new Date()
       }
     });

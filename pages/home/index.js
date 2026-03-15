@@ -132,6 +132,9 @@ Page({
       displayPrice: formatPrice(Number(item.price) || 0),
       displayAddress: fallbackText(item.address, "地址待完善"),
       displayType: fallbackText(item.type, "未知户型"),
+      displayImage: Array.isArray(item.images) && item.images.length
+        ? item.images[0]
+        : "/assets/images/house-placeholder.png",
       displayCreateTime: item.createTime ? formatDate(item.createTime) : ""
     }));
     logger.debug("home_normalize_list_end", { count: normalizedList.length });
