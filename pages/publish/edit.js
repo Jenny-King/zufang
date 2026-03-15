@@ -102,6 +102,7 @@ function createInitialForm() {
     price: "",
     type: "",
     layoutText: "",
+    city: "",
     area: "",
     address: "",
     description: "",
@@ -121,7 +122,8 @@ function buildRegionOptions(regions = []) {
   return FALLBACK_REGION_OPTIONS.concat(
     (Array.isArray(regions) ? regions : []).map((item) => ({
       label: item.name || "",
-      value: item.name || ""
+      value: item.name || "",
+      city: item.city || ""
     }))
   );
 }
@@ -131,16 +133,50 @@ function getPickerIndex(options = [], value) {
   return index >= 0 ? index : 0;
 }
 
-function getRegionIndex(regionOptions = [], region = "") {
+function getRegionIndex(regionOptions = [], region = "", city = "") {
   if (!region) {
     return 0;
   }
 
-  const index = regionOptions.findIndex((item) => item.value === region);
-  return index >= 0 ? index : 0;
+  const normalizedCity = String(city || "").trim();
+  const index = regionOptions.findIndex((item) => (
+    item.value === region
+    && (!normalizedCity || !item.city || item.city === normalizedCity)
+  ));
+  if (index >= 0) {
+    return index;
+  }
+
+  const fallbackIndex = regionOptions.findIndex((item) => item.value === region);
+  return fallbackIndex >= 0 ? fallbackIndex : 0;
+}
+
+function matchCityByLocation(locationDetail = {}) {
+  const candidates = [
+    locationDetail?.city,
+    locationDetail?.addressComponent?.city,
+    locationDetail?.adInfo?.city
+  ]
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+
+  return candidates[0] || "";
+}
+
+function filterRegionOptionsByCity(regionOptions = [], city = "") {
+  const normalizedCity = String(city || "").trim();
+  if (!normalizedCity) {
+    return Array.isArray(regionOptions) ? regionOptions : [];
+  }
+
+  const regionList = Array.isArray(regionOptions) ? regionOptions : [];
+  const sameCityOptions = regionList.filter((item) => !item.value || !item.city || item.city === normalizedCity);
+  return sameCityOptions.length ? sameCityOptions : regionList;
 }
 
 function matchRegionByLocation(regionOptions = [], locationDetail = {}, formattedAddress = "") {
+  const normalizedCity = matchCityByLocation(locationDetail);
+  const scopedCandidates = filterRegionOptionsByCity(regionOptions, normalizedCity);
   const normalizedAddress = String(
     formattedAddress
     || locationDetail?.formattedAddress
@@ -154,8 +190,7 @@ function matchRegionByLocation(regionOptions = [], locationDetail = {}, formatte
   ]
     .map((item) => String(item || "").trim())
     .filter(Boolean);
-  const candidates = Array.isArray(regionOptions) ? regionOptions : [];
-  const districtMatched = candidates.find((item) => districtCandidates.includes(String(item?.value || "").trim()));
+  const districtMatched = scopedCandidates.find((item) => districtCandidates.includes(String(item?.value || "").trim()));
 
   if (districtMatched) {
     return districtMatched.value;
@@ -165,7 +200,7 @@ function matchRegionByLocation(regionOptions = [], locationDetail = {}, formatte
     return "";
   }
 
-  const matched = candidates
+  const matched = scopedCandidates
     .filter((item) => item && item.value && item.value !== "全市")
     .sort((left, right) => String(right.value || "").length - String(left.value || "").length)
     .find((item) => normalizedAddress.includes(String(item.value || "").trim()));
@@ -375,7 +410,7 @@ Page({
       selectedBathIndex: layoutState.selectedBathIndex,
       selectedMinRentPeriodIndex: getPickerIndex(MIN_RENT_PERIOD_OPTIONS, formData.minRentPeriod),
       selectedOrientationIndex: getPickerIndex(ORIENTATION_OPTIONS, formData.orientation),
-      selectedRegionIndex: getRegionIndex(this.data.regionOptions, formData.region),
+      selectedRegionIndex: getRegionIndex(this.data.regionOptions, formData.region, formData.city),
       titleHighlight: false
     });
     logger.info("publish_reset_state_end", {});
@@ -439,6 +474,7 @@ Page({
   async loadRegionOptions() {
     logger.info("publish_load_regions_start", {});
     const currentRegion = this.data.formData.region || "";
+    const currentCity = this.data.formData.city || "";
 
     try {
       logger.info("api_call", { func: "house.getRegions", params: {} });
@@ -446,7 +482,7 @@ Page({
       const regionOptions = buildRegionOptions(regions);
       this.setData({
         regionOptions,
-        selectedRegionIndex: getRegionIndex(regionOptions, currentRegion)
+        selectedRegionIndex: getRegionIndex(regionOptions, currentRegion, currentCity)
       });
       logger.info("api_resp", {
         func: "house.getRegions",
@@ -482,7 +518,7 @@ Page({
       selectedBathIndex: layoutState.selectedBathIndex,
       selectedMinRentPeriodIndex: getPickerIndex(MIN_RENT_PERIOD_OPTIONS, formData.minRentPeriod),
       selectedOrientationIndex: getPickerIndex(ORIENTATION_OPTIONS, formData.orientation),
-      selectedRegionIndex: getRegionIndex(this.data.regionOptions, formData.region)
+      selectedRegionIndex: getRegionIndex(this.data.regionOptions, formData.region, formData.city)
     };
   },
 
@@ -523,6 +559,7 @@ Page({
         price: detail.price ? String(detail.price) : "",
         type: detail.type || "",
         layoutText: detail.layoutText || "",
+        city: detail.city || "",
         area: detail.area ? String(detail.area) : "",
         address: detail.address || "",
         description: detail.description || "",
@@ -558,7 +595,7 @@ Page({
         selectedBathIndex: layoutState.selectedBathIndex,
         selectedMinRentPeriodIndex: getPickerIndex(MIN_RENT_PERIOD_OPTIONS, formData.minRentPeriod),
         selectedOrientationIndex: getPickerIndex(ORIENTATION_OPTIONS, formData.orientation),
-        selectedRegionIndex: getRegionIndex(this.data.regionOptions, formData.region)
+        selectedRegionIndex: getRegionIndex(this.data.regionOptions, formData.region, formData.city)
       });
     } catch (error) {
       if (requestId !== this.detailRequestId) {
@@ -700,6 +737,11 @@ Page({
     logger.info("publish_choose_location_start", {});
     try {
       const result = await wx.chooseLocation();
+      if (!result || Object.prototype.toString.call(result) !== "[object Object]") {
+        logger.warn("publish_choose_location_empty_result", {});
+        wx.showToast({ title: "未获取到定位结果", icon: "none" });
+        return;
+      }
       const address = buildPickedLocationAddress(result.address, result.name);
       const latitude = Number(result.latitude || 0);
       const longitude = Number(result.longitude || 0);
@@ -719,6 +761,7 @@ Page({
             || address
             || this.data.formData.address
           ).trim();
+          const matchedCity = matchCityByLocation(reverseGeocodeResult);
           const matchedRegion = matchRegionByLocation(
             this.data.regionOptions,
             reverseGeocodeResult,
@@ -728,9 +771,13 @@ Page({
             "formData.address": nextAddress
           };
 
+          if (matchedCity) {
+            nextData["formData.city"] = matchedCity;
+          }
+
           if (matchedRegion) {
             nextData["formData.region"] = matchedRegion;
-            nextData.selectedRegionIndex = getRegionIndex(this.data.regionOptions, matchedRegion);
+            nextData.selectedRegionIndex = getRegionIndex(this.data.regionOptions, matchedRegion, matchedCity);
           }
 
           this.setData(nextData);
@@ -752,7 +799,9 @@ Page({
         logger.warn("publish_choose_location_cancel", {});
         return;
       }
-      logger.error("publish_choose_location_failed", { error: error.message });
+      logger.error("publish_choose_location_failed", {
+        error: error?.message || errMsg || "定位选择失败"
+      });
       wx.showToast({ title: "定位选择失败", icon: "none" });
     }
   },
@@ -811,6 +860,7 @@ Page({
       price: Number(form.price) || 0,
       type: form.type.trim(),
       layoutText: String(form.layoutText || "").trim(),
+      city: String(form.city || "").trim(),
       area: Number(form.area) || 0,
       address: form.address.trim(),
       description: form.description.trim(),

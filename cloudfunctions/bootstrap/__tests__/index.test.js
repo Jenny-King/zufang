@@ -36,7 +36,7 @@ describe("cloudfunction/bootstrap", () => {
     expect(res.data.collections).toHaveLength(11);
     expect(res.data.failedCollections).toEqual([]);
     expect(res.data.regions).toEqual(expect.objectContaining({
-      inserted: 7,
+      inserted: 57,
       skipped: false,
       collectionReady: true
     }));

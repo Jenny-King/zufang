@@ -1,10 +1,13 @@
 const houseService = require("../../services/house.service");
-const { HOUSE_TYPE, HOUSE_SORT_BY, REQUEST_DEFAULT } = require("../../config/constants");
+const mapService = require("../../services/map.service");
+const { HOUSE_TYPE, HOUSE_SORT_BY, REQUEST_DEFAULT, STORAGE_KEY } = require("../../config/constants");
 const { ROUTES, navigateTo } = require("../../config/routes");
 const { formatPrice, formatDate, fallbackText } = require("../../utils/format");
+const storage = require("../../utils/storage");
 const { logger } = require("../../utils/logger");
 
 const FALLBACK_REGION_OPTIONS = [{ label: "全部区域", value: "" }];
+const FALLBACK_CITY_LABEL = "深圳";
 const TYPE_OPTIONS = [
   { label: "全部户型", value: "" },
   { label: HOUSE_TYPE.STUDIO, value: HOUSE_TYPE.STUDIO },
@@ -22,16 +25,135 @@ function buildRegionOptions(regions = []) {
   return FALLBACK_REGION_OPTIONS.concat(
     (Array.isArray(regions) ? regions : []).map((item) => ({
       label: item.name || "",
-      value: item.name || ""
+      value: item.name || "",
+      city: item.city || ""
     }))
   );
+}
+
+function getRegionIndex(regionOptions = [], region = "") {
+  const normalizedRegion = String(region || "").trim();
+  if (!normalizedRegion) {
+    return 0;
+  }
+
+  const matchedIndex = (Array.isArray(regionOptions) ? regionOptions : []).findIndex(
+    (item) => String(item?.value || "").trim() === normalizedRegion
+  );
+  return matchedIndex >= 0 ? matchedIndex : 0;
+}
+
+function normalizeCityLabel(city = "") {
+  const normalizedCity = String(city || "").trim();
+  if (!normalizedCity) {
+    return "";
+  }
+
+  return normalizedCity.endsWith("市")
+    ? normalizedCity.slice(0, -1)
+    : normalizedCity;
+}
+
+function normalizeDistrictName(locationDetail = {}) {
+  return String(
+    locationDetail?.district
+    || locationDetail?.addressComponent?.district
+    || locationDetail?.adInfo?.district
+    || locationDetail?.region
+    || ""
+  ).trim();
+}
+
+function normalizeCityName(locationDetail = {}) {
+  return String(
+    locationDetail?.city
+    || locationDetail?.addressComponent?.city
+    || locationDetail?.adInfo?.city
+    || ""
+  ).trim();
+}
+
+function isSameCity(left = "", right = "") {
+  const leftLabel = normalizeCityLabel(left);
+  const rightLabel = normalizeCityLabel(right);
+  return Boolean(leftLabel && rightLabel && leftLabel === rightLabel);
+}
+
+function buildCityOptions(regionOptions = []) {
+  const cityMap = new Map();
+
+  (Array.isArray(regionOptions) ? regionOptions : []).forEach((item) => {
+    const cityValue = String(item?.city || "").trim();
+    const cityLabel = normalizeCityLabel(cityValue);
+    if (!cityValue || !cityLabel || cityMap.has(cityLabel)) {
+      return;
+    }
+
+    cityMap.set(cityLabel, {
+      label: cityLabel,
+      value: cityValue
+    });
+  });
+
+  return Array.from(cityMap.values());
+}
+
+function filterRegionOptionsByCity(regionOptions = [], city = "") {
+  const normalizedCity = String(city || "").trim();
+  const scopedRegionOptions = (Array.isArray(regionOptions) ? regionOptions : []).filter((item) => {
+    if (!item || !item.value) {
+      return false;
+    }
+
+    if (!normalizedCity) {
+      return true;
+    }
+
+    return isSameCity(item.city, normalizedCity);
+  });
+
+  return FALLBACK_REGION_OPTIONS.concat(scopedRegionOptions);
+}
+
+function buildLocationState(location = {}, source = "fallback") {
+  const currentCityRaw = String(location.city || "").trim();
+  const currentDistrict = String(location.region || location.district || "").trim();
+  const currentLatitude = Number(location.latitude || 0);
+  const currentLongitude = Number(location.longitude || 0);
+
+  return {
+    currentCityRaw,
+    currentCityLabel: normalizeCityLabel(currentCityRaw) || FALLBACK_CITY_LABEL,
+    currentDistrict,
+    currentLatitude,
+    currentLongitude,
+    currentLocationSource: source,
+    locationReady: Boolean(currentCityRaw)
+  };
+}
+
+function getFallbackCityFromRegions(regionOptions = []) {
+  const cityOption = (Array.isArray(regionOptions) ? regionOptions : []).find((item) => item && item.city);
+  return String(cityOption?.city || "").trim();
+}
+
+function buildCachedLocationPayload(location = {}) {
+  return {
+    city: String(location.city || "").trim(),
+    region: String(location.region || location.district || "").trim(),
+    latitude: Number(location.latitude || 0),
+    longitude: Number(location.longitude || 0),
+    updateTime: new Date().toISOString()
+  };
 }
 
 Page({
   data: {
     keyword: "",
     keywordDraft: "",
+    allRegionOptions: FALLBACK_REGION_OPTIONS,
     regionOptions: FALLBACK_REGION_OPTIONS,
+    cityOptions: [],
     typeOptions: TYPE_OPTIONS,
     sortOptions: SORT_OPTIONS,
     selectedRegionIndex: 0,
@@ -42,6 +164,17 @@ Page({
     pageSize: REQUEST_DEFAULT.PAGE_SIZE,
     total: 0,
     hasMore: true,
+    currentCityRaw: "",
+    currentCityLabel: FALLBACK_CITY_LABEL,
+    selectedCityRaw: "",
+    selectedCityLabel: "",
+    currentDistrict: "",
+    currentLatitude: 0,
+    currentLongitude: 0,
+    currentLocationSource: "fallback",
+    locationReady: false,
+    locationLoading: false,
+    locationErrorText: "",
     loading: false,
     refreshing: false,
     errorText: ""
@@ -49,12 +182,14 @@ Page({
 
   async onLoad(options) {
     logger.info("page_load", { page: "home", query: options || {} });
+    this.restoreCachedLocation();
     await this.initPage();
   },
 
   async onPullDownRefresh() {
     logger.info("home_pull_down_start", {});
     try {
+      await this.refreshCurrentLocation({ silent: true });
       await this.refreshList();
     } finally {
       wx.stopPullDownRefresh();
@@ -71,8 +206,73 @@ Page({
   async initPage() {
     logger.info("home_init_start", {});
     await this.loadRegionOptions();
+    this.applyFallbackLocation();
+    await this.refreshCurrentLocation({ silent: true });
     await this.refreshList();
     logger.info("home_init_end", {});
+  },
+
+  restoreCachedLocation() {
+    const cachedLocation = storage.getStorageSync(STORAGE_KEY.CURRENT_LOCATION, null);
+    if (!cachedLocation || Object.prototype.toString.call(cachedLocation) !== "[object Object]") {
+      logger.info("home_restore_cached_location_skip", {});
+      return;
+    }
+
+    this.setData({
+      ...buildLocationState(cachedLocation, "cache")
+    });
+    logger.info("home_restore_cached_location_end", {
+      city: cachedLocation.city || "",
+      region: cachedLocation.region || ""
+    });
+  },
+
+  applyFallbackLocation() {
+    if (this.data.currentCityRaw) {
+      return;
+    }
+
+    const fallbackCity = getFallbackCityFromRegions(this.data.regionOptions);
+    if (!fallbackCity) {
+      this.setData({
+        currentCityLabel: FALLBACK_CITY_LABEL,
+        currentLocationSource: "fallback",
+        locationReady: false
+      });
+      return;
+    }
+
+    this.setData({
+      ...buildLocationState({ city: fallbackCity }, "fallback")
+    });
+    this.syncRegionScopeWithCity(fallbackCity, { preserveRegion: true });
+    logger.info("home_apply_fallback_location_end", { city: fallbackCity });
+  },
+
+  syncRegionScopeWithCity(city, options = {}) {
+    const {
+      preserveRegion = false,
+      preferredRegion = ""
+    } = options;
+    const allRegionOptions = this.data.allRegionOptions.length
+      ? this.data.allRegionOptions
+      : FALLBACK_REGION_OPTIONS;
+    const scopedRegionOptions = filterRegionOptionsByCity(allRegionOptions, city);
+    const currentRegion = preferredRegion
+      || (preserveRegion ? this.data.regionOptions[this.data.selectedRegionIndex]?.value || "" : "");
+    const selectedRegionIndex = getRegionIndex(scopedRegionOptions, currentRegion);
+
+    this.setData({
+      regionOptions: scopedRegionOptions,
+      selectedRegionIndex
+    });
+
+    logger.info("home_sync_region_scope_end", {
+      city: String(city || "").trim(),
+      regionCount: scopedRegionOptions.length,
+      selectedRegionIndex
+    });
   },
 
   async loadRegionOptions() {
@@ -80,10 +280,15 @@ Page({
     try {
       logger.info("api_call", { func: "house.getRegions", params: {} });
       const regions = await houseService.getRegions();
-      const regionOptions = buildRegionOptions(regions);
+      const allRegionOptions = buildRegionOptions(regions);
+      const cityOptions = buildCityOptions(allRegionOptions);
+      const scopedCity = this.data.selectedCityRaw || this.data.currentCityRaw || getFallbackCityFromRegions(allRegionOptions);
+      const regionOptions = filterRegionOptionsByCity(allRegionOptions, scopedCity);
       this.setData({
+        allRegionOptions,
+        cityOptions,
         regionOptions,
-        selectedRegionIndex: 0
+        selectedRegionIndex: getRegionIndex(regionOptions, this.data.regionOptions[this.data.selectedRegionIndex]?.value || "")
       });
       logger.info("api_resp", {
         func: "house.getRegions",
@@ -92,6 +297,8 @@ Page({
       });
     } catch (error) {
       this.setData({
+        allRegionOptions: FALLBACK_REGION_OPTIONS,
+        cityOptions: [],
         regionOptions: FALLBACK_REGION_OPTIONS,
         selectedRegionIndex: 0
       });
@@ -99,6 +306,7 @@ Page({
         err: error.message || "区域加载失败"
       });
     } finally {
+      this.applyFallbackLocation();
       logger.info("home_load_regions_end", {
         count: this.data.regionOptions.length
       });
@@ -107,12 +315,17 @@ Page({
 
   buildQueryParams(targetPage) {
     logger.debug("home_build_query_start", { targetPage });
-    const region = this.data.regionOptions[this.data.selectedRegionIndex]?.value || "";
+    const selectedRegionOption = this.data.regionOptions[this.data.selectedRegionIndex] || {};
+    const region = selectedRegionOption.value || "";
+    const city = region
+      ? String(selectedRegionOption.city || this.data.selectedCityRaw || "").trim()
+      : String(this.data.selectedCityRaw || "").trim();
     const type = this.data.typeOptions[this.data.selectedTypeIndex]?.value || "";
     const sortBy = this.data.sortOptions[this.data.selectedSortIndex]?.value || HOUSE_SORT_BY.LATEST;
 
     const params = {
       keyword: this.data.keyword.trim(),
+      city,
       region,
       type,
       sortBy,
@@ -230,6 +443,80 @@ Page({
     logger.info("home_search_tap_end", {});
   },
 
+  async onCityTap() {
+    logger.info("home_city_tap_start", {
+      cityCount: this.data.cityOptions.length,
+      selectedCity: this.data.selectedCityRaw || ""
+    });
+
+    const cityOptions = this.data.cityOptions;
+    if (!cityOptions.length) {
+      const refreshed = await this.refreshCurrentLocation({ silent: false, fromTap: true });
+      if (refreshed) {
+        this.setData({
+          selectedCityRaw: "",
+          selectedCityLabel: ""
+        });
+        this.syncRegionScopeWithCity(this.data.currentCityRaw, { preserveRegion: false });
+        await this.refreshList();
+      }
+      logger.info("home_city_tap_end", { fallbackRefresh: refreshed });
+      return;
+    }
+
+    const currentCityRaw = this.data.currentCityRaw || getFallbackCityFromRegions(this.data.allRegionOptions);
+    const refreshActionLabel = "重新定位当前城市";
+    const itemList = cityOptions.map((item) => (
+      isSameCity(item.value, currentCityRaw)
+        ? `${item.label}（当前定位）`
+        : item.label
+    )).concat(refreshActionLabel);
+
+    try {
+      const result = await wx.showActionSheet({ itemList });
+      const selectedIndex = Number(result?.tapIndex);
+      const refreshIndex = itemList.length - 1;
+
+      if (selectedIndex === refreshIndex) {
+        const refreshed = await this.refreshCurrentLocation({ silent: false, fromTap: true });
+        if (refreshed) {
+          this.setData({
+            selectedCityRaw: "",
+            selectedCityLabel: ""
+          });
+          this.syncRegionScopeWithCity(this.data.currentCityRaw, { preserveRegion: false });
+          await this.refreshList();
+        }
+        logger.info("home_city_tap_end", { action: "refresh", refreshed });
+        return;
+      }
+
+      const cityOption = cityOptions[selectedIndex];
+      if (!cityOption) {
+        logger.info("home_city_tap_end", { action: "noop" });
+        return;
+      }
+
+      const isFollowCurrentCity = isSameCity(cityOption.value, currentCityRaw);
+      this.setData({
+        selectedCityRaw: isFollowCurrentCity ? "" : cityOption.value,
+        selectedCityLabel: isFollowCurrentCity ? "" : cityOption.label
+      });
+      this.syncRegionScopeWithCity(cityOption.value, { preserveRegion: false });
+      await this.refreshList();
+      logger.info("home_city_tap_end", {
+        action: isFollowCurrentCity ? "follow_location" : "switch_city",
+        city: cityOption.value
+      });
+    } catch (error) {
+      const errMsg = String(error?.errMsg || error?.message || "");
+      if (!/cancel/i.test(errMsg)) {
+        logger.warn("home_city_tap_failed", { err: errMsg });
+      }
+      logger.info("home_city_tap_end", { canceled: true });
+    }
+  },
+
   async onRegionChange(event) {
     logger.info("home_region_change_start", { value: event.detail.value });
     this.setData({ selectedRegionIndex: Number(event.detail.value) || 0 });
@@ -261,5 +548,86 @@ Page({
 
     navigateTo(ROUTES.HOUSE_DETAIL, { houseId });
     logger.info("home_go_detail_end", { houseId });
+  },
+
+  async refreshCurrentLocation(options = {}) {
+    const {
+      silent = false,
+      fromTap = false
+    } = options;
+    logger.info("home_refresh_location_start", { silent, fromTap });
+    this.setData({
+      locationLoading: true,
+      locationErrorText: ""
+    });
+
+    try {
+      const location = await wx.getLocation({
+        type: "gcj02"
+      });
+      const latitude = Number(location?.latitude || 0);
+      const longitude = Number(location?.longitude || 0);
+
+      if (!latitude || !longitude) {
+        throw new Error("未获取到有效定位坐标");
+      }
+
+      const reverseGeocodeResult = await mapService.reverseGeocode(latitude, longitude);
+      const currentCityRaw = normalizeCityName(reverseGeocodeResult);
+      const currentDistrict = normalizeDistrictName(reverseGeocodeResult);
+      const nextLocation = buildCachedLocationPayload({
+        city: currentCityRaw,
+        region: currentDistrict,
+        latitude,
+        longitude
+      });
+
+      storage.setStorageSync(STORAGE_KEY.CURRENT_LOCATION, nextLocation);
+      this.setData({
+        ...buildLocationState(nextLocation, "gps"),
+        locationErrorText: ""
+      });
+      if (!this.data.selectedCityRaw) {
+        this.syncRegionScopeWithCity(currentCityRaw, { preserveRegion: true });
+      }
+      logger.info("home_refresh_location_end", {
+        city: currentCityRaw,
+        district: currentDistrict,
+        latitude,
+        longitude
+      });
+      return true;
+    } catch (error) {
+      const errMsg = String(error?.errMsg || error?.message || "定位失败");
+      const isPermissionDenied = /auth deny|auth denied|auth forbid|permission denied/i.test(errMsg);
+      const locationErrorText = isPermissionDenied ? "定位未授权" : "定位失败";
+      this.setData({ locationErrorText });
+      logger.warn("home_refresh_location_failed", {
+        err: errMsg,
+        isPermissionDenied
+      });
+
+      if (fromTap && isPermissionDenied) {
+        const modalRes = await wx.showModal({
+          title: "开启定位权限",
+          content: "开启后可自动定位当前城市，是否前往设置？",
+          confirmText: "去设置"
+        });
+
+        if (modalRes.confirm) {
+          const settingRes = await wx.openSetting();
+          if (settingRes?.authSetting?.["scope.userLocation"]) {
+            this.setData({ locationLoading: false });
+            return await this.refreshCurrentLocation({ silent, fromTap: false });
+          }
+        }
+      } else if (!silent) {
+        wx.showToast({ title: locationErrorText, icon: "none" });
+      }
+
+      return false;
+    } finally {
+      this.setData({ locationLoading: false });
+    }
   }
 });

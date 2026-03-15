@@ -45,6 +45,15 @@
     "backgroundColor": "#f7f8fa",
     "backgroundTextStyle": "light"
   },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于首页定位当前城市，以及发布房源时自动回填位置信息"
+    }
+  },
+  "requiredPrivateInfos": [
+    "chooseLocation",
+    "getLocation"
+  ],
   "tabBar": {
     "color": "#666666",
     "selectedColor": "#1677ff",

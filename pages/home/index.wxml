@@ -1,13 +1,21 @@
 <view class="container home-page">
-  <view class="search-bar card">
-    <input
-      class="search-input"
-      placeholder="搜索小区、地铁、房源关键词"
-      value="{{keywordDraft}}"
-      bindinput="onKeywordInput"
-      confirm-type="search"
-    />
-    <button class="search-btn" size="mini" bindtap="onSearchTap">搜索</button>
+  <view class="search-row">
+    <view class="search-location-chip" bindtap="onCityTap">
+      <view class="search-location-dot"></view>
+      <text class="search-location-city">{{selectedCityLabel || (locationLoading ? '定位中' : currentCityLabel)}}</text>
+      <text class="search-location-arrow">˅</text>
+    </view>
+
+    <view class="search-bar card">
+      <input
+        class="search-input"
+        placeholder="搜索小区、地铁、房源关键词"
+        value="{{keywordDraft}}"
+        bindinput="onKeywordInput"
+        confirm-type="search"
+      />
+      <button class="search-btn" size="mini" bindtap="onSearchTap">搜索</button>
+    </view>
   </view>
 
   <view class="filter-bar card">

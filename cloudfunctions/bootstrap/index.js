@@ -29,15 +29,95 @@ const REQUIRED_COLLECTIONS = [
   "sms_codes"
 ];
 
-const DEFAULT_REGIONS = [
-  { name: "全市", order: 0, status: "active" },
-  { name: "南山区", order: 1, status: "active" },
-  { name: "福田区", order: 2, status: "active" },
-  { name: "罗湖区", order: 3, status: "active" },
-  { name: "宝安区", order: 4, status: "active" },
-  { name: "龙华区", order: 5, status: "active" },
-  { name: "龙岗区", order: 6, status: "active" }
-];
+const DEFAULT_REGION_GROUPS = {
+  深圳市: [
+    "全市",
+    "福田区",
+    "罗湖区",
+    "南山区",
+    "盐田区",
+    "宝安区",
+    "龙岗区",
+    "龙华区",
+    "坪山区",
+    "光明区",
+    "大鹏新区"
+  ],
+  北京市: [
+    "全市",
+    "东城区",
+    "西城区",
+    "朝阳区",
+    "丰台区",
+    "石景山区",
+    "海淀区",
+    "门头沟区",
+    "房山区",
+    "通州区",
+    "顺义区",
+    "昌平区",
+    "大兴区",
+    "怀柔区",
+    "平谷区",
+    "密云区",
+    "延庆区"
+  ],
+  上海市: [
+    "全市",
+    "黄浦区",
+    "徐汇区",
+    "长宁区",
+    "静安区",
+    "普陀区",
+    "虹口区",
+    "杨浦区",
+    "闵行区",
+    "宝山区",
+    "嘉定区",
+    "浦东新区",
+    "金山区",
+    "松江区",
+    "青浦区",
+    "奉贤区",
+    "崇明区"
+  ],
+  广州市: [
+    "全市",
+    "越秀区",
+    "海珠区",
+    "荔湾区",
+    "天河区",
+    "白云区",
+    "黄埔区",
+    "番禺区",
+    "花都区",
+    "南沙区",
+    "从化区",
+    "增城区"
+  ]
+};
+
+function buildDefaultRegions(regionGroups = {}) {
+  let order = 0;
+
+  return Object.keys(regionGroups).reduce((acc, city) => {
+    const districts = Array.isArray(regionGroups[city]) ? regionGroups[city] : [];
+
+    districts.forEach((name) => {
+      acc.push({
+        city,
+        name,
+        order,
+        status: "active"
+      });
+      order += 1;
+    });
+
+    return acc;
+  }, []);
+}
+
+const DEFAULT_REGIONS = buildDefaultRegions(DEFAULT_REGION_GROUPS);
 
 const DEFAULT_TEST_PHONES = [
   "13387395714",
@@ -234,28 +314,53 @@ async function initRegionsInternal(regionCollectionState = null) {
   }
 
   const regionCollection = db.collection("regions");
-  const queryRegionNames = DEFAULT_REGIONS.map((item) => item.name).concat(["全部区域"]);
   const existingRegionRes = await regionCollection
-    .where({ name: _.in(queryRegionNames) })
+    .limit(200)
     .get();
   const existingRegions = existingRegionRes.data || [];
-  const existingRegionNames = new Set(existingRegions.map((item) => item.name));
-  const legacyAllCityRegion = existingRegions.find((item) => item.name === "全部区域") || null;
   let inserted = 0;
 
   for (const region of DEFAULT_REGIONS) {
-    if (existingRegionNames.has(region.name)) {
+    const matchedRegion = existingRegions.find((item) => (
+      String(item?.city || "").trim() === region.city
+      && String(item?.name || "").trim() === region.name
+    )) || existingRegions.find((item) => (
+      !String(item?.city || "").trim()
+      && (
+        String(item?.name || "").trim() === region.name
+        || (region.name === "全市" && String(item?.name || "").trim() === "全部区域")
+      )
+    ));
+
+    if (matchedRegion?._id) {
+      const currentCity = String(matchedRegion.city || "").trim();
+      const currentName = String(matchedRegion.name || "").trim();
+      const currentOrder = Number(matchedRegion.order || 0);
+      const currentStatus = String(matchedRegion.status || "").trim();
+      const shouldSync = (
+        currentCity !== region.city
+        || currentName !== region.name
+        || currentOrder !== region.order
+        || currentStatus !== region.status
+      );
+
+      if (shouldSync) {
+        // eslint-disable-next-line no-await-in-loop
+        await regionCollection.doc(matchedRegion._id).update({ data: region });
+        matchedRegion.city = region.city;
+        matchedRegion.name = region.name;
+        matchedRegion.order = region.order;
+        matchedRegion.status = region.status;
+      }
       continue;
     }
-    if (region.name === "全市" && legacyAllCityRegion?._id) {
-      // 兼容旧初始化数据，将“全部区域”平滑迁移为“全市”。
-      // eslint-disable-next-line no-await-in-loop
-      await regionCollection.doc(legacyAllCityRegion._id).update({ data: region });
-      existingRegionNames.add(region.name);
-      continue;
-    }
+
     // eslint-disable-next-line no-await-in-loop
-    await regionCollection.add({ data: region });
+    const addRes = await regionCollection.add({ data: region });
+    existingRegions.push({
+      ...region,
+      _id: addRes?._id || ""
+    });
     inserted += 1;
   }
 

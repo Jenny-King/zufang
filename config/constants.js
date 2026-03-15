@@ -62,7 +62,8 @@ const DATA_STATUS = {
 const STORAGE_KEY = {
   USER_INFO: "userInfo",
   ACCESS_TOKEN: "accessToken",
-  LAST_ROLE: "lastRole"
+  LAST_ROLE: "lastRole",
+  CURRENT_LOCATION: "currentLocation"
 };
 
 const IDENTITY_MASK = {

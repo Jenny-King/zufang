@@ -2,11 +2,56 @@
   min-height: 100vh;
 }
 
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-bottom: 20rpx;
+}
+
+.search-location-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+  flex-shrink: 0;
+  min-width: 172rpx;
+  height: 88rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: #ffffff;
+  border: 2rpx solid #e7edf5;
+  box-shadow: 0 10rpx 24rpx rgba(15, 23, 42, 0.04);
+  box-sizing: border-box;
+}
+
+.search-location-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+  background: #1bb66d;
+  box-shadow: 0 0 0 6rpx rgba(27, 182, 109, 0.12);
+}
+
+.search-location-city {
+  max-width: 120rpx;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #111827;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-location-arrow {
+  font-size: 20rpx;
+  color: #6b7280;
+}
+
 .search-bar {
   display: flex;
   align-items: center;
+  flex: 1;
   padding: 20rpx;
-  margin-bottom: 20rpx;
   gap: 16rpx;
 }
 

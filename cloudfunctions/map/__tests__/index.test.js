@@ -1,9 +1,11 @@
 const https = require("https");
+const crypto = require("crypto");
 const EventEmitter = require("events");
 const { main } = require("../index");
 
 describe("cloudfunction/map", () => {
   const originalTencentMapKey = process.env.TENCENT_MAP_KEY;
+  const originalTencentMapSk = process.env.TENCENT_MAP_SK;
   const originalHttpsGet = https.get;
 
   afterEach(() => {
@@ -11,6 +13,11 @@ describe("cloudfunction/map", () => {
       delete process.env.TENCENT_MAP_KEY;
     } else {
       process.env.TENCENT_MAP_KEY = originalTencentMapKey;
+    }
+    if (originalTencentMapSk === undefined) {
+      delete process.env.TENCENT_MAP_SK;
+    } else {
+      process.env.TENCENT_MAP_SK = originalTencentMapSk;
     }
     https.get = originalHttpsGet;
   });
@@ -32,11 +39,23 @@ describe("cloudfunction/map", () => {
 
   it("reverseGeocode returns formatted address and district from tencent map", async () => {
     process.env.TENCENT_MAP_KEY = "mock_key";
-    https.get = jest.fn((url, callback) => {
+    process.env.TENCENT_MAP_SK = "mock_sk";
+    const expectedSig = crypto
+      .createHash("md5")
+      .update("/ws/geocoder/v1/?get_poi=0&key=mock_key&location=22.5405,113.9345mock_sk", "utf8")
+      .digest("hex");
+
+    https.get = jest.fn((url, options, callback) => {
       expect(url).toContain("https://apis.map.qq.com/ws/geocoder/v1/");
-      expect(url).toContain("location=22.5405%2C113.9345");
       expect(url).toContain("get_poi=0");
       expect(url).toContain("key=mock_key");
+      expect(url).toContain("location=22.5405%2C113.9345");
+      expect(url).toContain(`sig=${expectedSig}`);
+      expect(options).toEqual(expect.objectContaining({
+        headers: {
+          "x-legacy-url-decode": "no"
+        }
+      }));
 
       const response = new EventEmitter();
       const request = {

@@ -71,14 +71,14 @@
 
     <view class="form-item">
       <text class="label">地址信息</text>
-      <view class="location-row">
-        <button class="location-btn" size="mini" bindtap="onChooseLocation">地图定位</button>
-        <picker mode="selector" range="{{regionOptions}}" range-key="label" value="{{selectedRegionIndex}}" bindchange="onRegionChange">
-          <view class="input location-picker">{{regionOptions[selectedRegionIndex].label}}</view>
-        </picker>
+      <view class="location-panel">
+        <button class="location-btn" size="mini" bindtap="onChooseLocation">地图定位并回填</button>
       </view>
       <input class="input location-address" data-field="address" value="{{formData.address}}" placeholder="请输入详细地址" bindinput="onInputChange" />
-      <view class="helper-text">可先地图定位自动带出区域，也可手动调整区域和详细地址</view>
+      <view class="helper-text">可先地图定位自动带出区域与地址，也可手动补充详细地址</view>
+      <view wx:if="{{formData.city || formData.region}}" class="helper-text">
+        已识别位置：{{formData.city || '未知城市'}}{{formData.region ? ' · ' + formData.region : ''}}
+      </view>
       <map
         wx:if="{{formData.latitude}}"
         latitude="{{formData.latitude}}"

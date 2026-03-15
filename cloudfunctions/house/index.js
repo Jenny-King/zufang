@@ -188,6 +188,7 @@ function buildCreateData(payload) {
     area: normalizePositiveNumber(payload.area, "area"),
     type,
     layoutText,
+    city: normalizeString(payload.city),
     floor: normalizeString(payload.floor),
     orientation: normalizeString(payload.orientation),
     address,
@@ -239,6 +240,10 @@ function buildUpdateData(payload) {
 
   if (payload.layoutText !== undefined) {
     updateData.layoutText = normalizeString(payload.layoutText);
+  }
+
+  if (payload.city !== undefined) {
+    updateData.city = normalizeString(payload.city);
   }
 
   if (payload.address !== undefined) {
@@ -342,6 +347,7 @@ function buildListWhere(payload) {
   if (payload.keyword) {
     where.title = db.RegExp({ regexp: String(payload.keyword).trim(), options: "i" });
   }
+  if (payload.city) where.city = String(payload.city).trim();
   if (payload.region) where.region = String(payload.region).trim();
   if (payload.type) where.type = String(payload.type).trim();
   if (payload.minPrice && Number(payload.minPrice) > 0) where.price = _.gte(Number(payload.minPrice));
@@ -400,9 +406,11 @@ async function handleGetRegions() {
   const res = await db.collection(REGIONS)
     .where({ status: "active" })
     .orderBy("order", "asc")
+    .limit(200)
     .get();
 
   return success((res.data || []).map((item) => ({
+    city: item.city || "",
     name: item.name || "",
     order: Number(item.order || 0)
   })));
