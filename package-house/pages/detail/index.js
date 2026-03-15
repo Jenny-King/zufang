@@ -8,6 +8,22 @@ const { formatPrice, formatDate, fallbackText } = require("../../../utils/format
 const { ROUTES, navigateTo } = require("../../../config/routes");
 const { logger } = require("../../../utils/logger");
 
+const FACILITY_LABEL_MAP = {
+  elevator: "电梯",
+  parking: "停车位",
+  wifi: "宽带",
+  airConditioner: "空调",
+  washingMachine: "洗衣机",
+  refrigerator: "冰箱",
+  waterHeater: "热水器",
+  bed: "床",
+  wardrobe: "衣柜",
+  balcony: "阳台",
+  security: "门禁",
+  gym: "健身房",
+  swimmingPool: "游泳池"
+};
+
 Page({
   data: {
     houseId: "",
@@ -72,7 +88,9 @@ Page({
         : ["/assets/images/house-placeholder.png"],
       displayContactName: fallbackText(detail.contactName, "房东"),
       displayContactPhone: fallbackText(detail.contactPhone, "未提供"),
-      displayFacilities: Object.keys(detail.facilities || {}).filter((key) => detail.facilities[key])
+      displayFacilities: Object.keys(detail.facilities || {})
+        .filter((key) => detail.facilities[key])
+        .map((key) => FACILITY_LABEL_MAP[key] || key)
     };
     logger.debug("house_detail_normalize_end", { hasDetail: true });
     return normalized;

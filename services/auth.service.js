@@ -54,6 +54,18 @@ async function register(formData = {}) {
   return callCloud("auth", "register", formData);
 }
 
+async function resetPassword(phone, code, newPassword) {
+  assertNonEmptyString(phone, "phone");
+  assertNonEmptyString(code, "code");
+  assertNonEmptyString(newPassword, "newPassword");
+
+  return callCloud("auth", "resetPassword", {
+    phone: phone.trim(),
+    code: code.trim(),
+    newPassword
+  });
+}
+
 async function bindWechat() {
   return callCloud("auth", "bindWechat", {});
 }
@@ -66,7 +78,7 @@ async function logout() {
   return callCloud("auth", "logout", {});
 }
 
-async function verifyIdentity(realName, idCard) {
+async function submitIdentityProfile(realName, idCard) {
   assertNonEmptyString(realName, "realName");
   assertNonEmptyString(idCard, "idCard");
   return callCloud("auth", "verifyIdentity", {
@@ -82,8 +94,10 @@ module.exports = {
   loginWithPhoneCode,
   loginWithPassword,
   register,
+  resetPassword,
   bindWechat,
   unbindWechat,
   logout,
-  verifyIdentity
+  submitIdentityProfile,
+  verifyIdentity: submitIdentityProfile
 };

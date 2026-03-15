@@ -30,12 +30,20 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message, code = -1) {
-  return { code, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
 }
 
 function hashToken(token) {
@@ -44,6 +52,64 @@ function hashToken(token) {
 
 function getAccessTokenFromEvent(event) {
   return String(event?.auth?.accessToken || "").trim();
+}
+
+async function getActiveHouseById(houseId) {
+  const normalizedHouseId = String(houseId || "").trim();
+  if (!normalizedHouseId) {
+    return null;
+  }
+
+  const detail = await db.collection(HOUSES).doc(normalizedHouseId).get().catch(() => null);
+  const house = detail?.data;
+
+  if (!house || house.status !== "active") {
+    return null;
+  }
+
+  return house;
+}
+
+async function listHistoryDocsByUserId(userId) {
+  const docs = [];
+  const pageSize = 100;
+  let skip = 0;
+
+  while (true) {
+    // 浏览历史需要先过滤掉失效房源，再切分页，避免 total 与 list 口径分叉。
+    // eslint-disable-next-line no-await-in-loop
+    const res = await db.collection(HISTORY)
+      .where({ userId })
+      .orderBy("viewTime", "desc")
+      .skip(skip)
+      .limit(pageSize)
+      .get();
+
+    const batch = Array.isArray(res?.data) ? res.data : [];
+    docs.push(...batch);
+
+    if (batch.length < pageSize) {
+      break;
+    }
+
+    skip += batch.length;
+  }
+
+  return docs;
+}
+
+async function buildActiveHouseMap(houseIds = []) {
+  const houseMap = {};
+
+  for (const houseId of houseIds) {
+    // eslint-disable-next-line no-await-in-loop
+    const house = await getActiveHouseById(houseId);
+    if (house?._id) {
+      houseMap[house._id] = house;
+    }
+  }
+
+  return houseMap;
 }
 
 async function getSessionByAccessToken(accessToken) {
@@ -110,30 +176,17 @@ async function handleGetList(payload, event) {
 
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.max(1, Math.min(20, Number(payload.pageSize || 10)));
-  const where = { userId: authState.user.userId };
-  const countRes = await db.collection(HISTORY).where(where).count();
-  const historyRes = await db.collection(HISTORY)
-    .where(where)
-    .orderBy("viewTime", "desc")
-    .skip((page - 1) * pageSize)
-    .limit(pageSize)
-    .get();
-
-  const historyList = historyRes.data || [];
+  const historyList = await listHistoryDocsByUserId(authState.user.userId);
   const houseIds = historyList.map((item) => item.houseId).filter(Boolean);
-  let houseMap = {};
-  if (houseIds.length) {
-    const houseRes = await db.collection(HOUSES).where({ _id: _.in(houseIds), status: "active" }).get();
-    houseMap = (houseRes.data || []).reduce((acc, house) => {
-      acc[house._id] = house;
-      return acc;
-    }, {});
-  }
-  const list = historyList
+  const houseMap = await buildActiveHouseMap(houseIds);
+  const activeHistoryList = historyList
     .filter((item) => houseMap[item.houseId])
     .map((item) => ({ ...item, houseInfo: houseMap[item.houseId] }));
+  const total = activeHistoryList.length;
+  const startIndex = (page - 1) * pageSize;
+  const list = activeHistoryList.slice(startIndex, startIndex + pageSize);
 
-  return success({ list, page, pageSize, total: countRes.total || 0 });
+  return success({ list, page, pageSize, total });
 }
 
 async function handleAdd(payload, event) {
@@ -145,6 +198,11 @@ async function handleAdd(payload, event) {
   const houseId = String(payload.houseId || "").trim();
   if (!houseId) {
     return fail("houseId 不能为空");
+  }
+
+  const house = await getActiveHouseById(houseId);
+  if (!house) {
+    return fail("房源不存在或已下架", 404);
   }
 
   const exists = await db.collection(HISTORY).where({ userId: authState.user.userId, houseId }).limit(1).get();

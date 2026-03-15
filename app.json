@@ -17,14 +17,17 @@
       "pages": [
         "pages/login/index",
         "pages/register/index",
+        "pages/reset-password/index",
         "pages/verify/index"
       ]
     },
     {
       "root": "package-profile",
       "pages": [
+        "pages/edit-profile/index",
         "pages/favorites/index",
         "pages/history/index",
+        "pages/notifications/index",
         "pages/my-houses/index"
       ]
     },

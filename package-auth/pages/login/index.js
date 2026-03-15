@@ -213,5 +213,11 @@ Page({
     logger.info("auth_login_go_register_start", {});
     redirectTo(ROUTES.AUTH_REGISTER);
     logger.info("auth_login_go_register_end", {});
+  },
+
+  onGoResetPasswordTap() {
+    logger.info("auth_login_go_reset_password_start", {});
+    redirectTo(ROUTES.AUTH_RESET_PASSWORD);
+    logger.info("auth_login_go_reset_password_end", {});
   }
 });

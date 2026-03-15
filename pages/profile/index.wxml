@@ -21,6 +21,14 @@
   </view>
 
   <view class="card menu-card" wx:if="{{isLoggedIn}}">
+    <view class="menu-item" bindtap="onGoEditProfile">
+      <text>编辑资料</text>
+      <text class="arrow">></text>
+    </view>
+    <view class="menu-item" bindtap="onGoNotifications">
+      <text>消息通知</text>
+      <text class="arrow">></text>
+    </view>
     <view class="menu-item" bindtap="onGoFavorites">
       <text>我的收藏</text>
       <text class="arrow">></text>
@@ -30,7 +38,7 @@
       <text class="arrow">></text>
     </view>
     <view class="menu-item" bindtap="onGoVerify">
-      <text>实名认证</text>
+      <text>身份资料</text>
       <text class="arrow">></text>
     </view>
     <view class="menu-item" wx:if="{{userInfo && userInfo.wechatBound}}" bindtap="onUnbindWechatTap">

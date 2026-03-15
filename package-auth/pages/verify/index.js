@@ -4,6 +4,33 @@ const authUtils = require("../../../utils/auth");
 const { isNonEmptyString, isIdCard } = require("../../../utils/validate");
 const { logger } = require("../../../utils/logger");
 
+function normalizeIdentityInfo(userInfo) {
+  if (!userInfo) {
+    return null;
+  }
+
+  let displayIdentityStatus = "未提交";
+  let displayIdentityStatusClass = "pending";
+  let displayIdentityHint = "当前版本仅登记身份资料，提交后需人工审核。";
+
+  if (userInfo.verified) {
+    displayIdentityStatus = "已审核通过";
+    displayIdentityStatusClass = "ok";
+    displayIdentityHint = "当前账号的身份资料已审核通过。";
+  } else if (userInfo.identityStatus === "pending") {
+    displayIdentityStatus = "待审核";
+    displayIdentityStatusClass = "pending";
+    displayIdentityHint = "资料已提交，待人工审核完成后才会变更认证状态。";
+  }
+
+  return {
+    ...userInfo,
+    displayIdentityStatus,
+    displayIdentityStatusClass,
+    displayIdentityHint
+  };
+}
+
 Page({
   data: {
     submitLoading: false,
@@ -30,7 +57,7 @@ Page({
       logger.info("api_call", { func: "user.getCurrentUser", params: {} });
       const userInfo = await userStore.refreshCurrentUser();
       logger.info("api_resp", { func: "user.getCurrentUser", code: 0 });
-      this.setData({ userInfo: userInfo || null });
+      this.setData({ userInfo: normalizeIdentityInfo(userInfo) });
     } catch (error) {
       logger.error("api_error", { func: "user.getCurrentUser", err: error.message });
       wx.showToast({ title: error.message || "用户信息加载失败", icon: "none" });
@@ -74,9 +101,9 @@ Page({
 
     this.setData({ submitLoading: true });
     try {
-      logger.info("api_call", { func: "auth.verifyIdentity", params: { realName } });
-      const verifyResult = await authService.verifyIdentity(realName, idCard);
-      logger.info("api_resp", { func: "auth.verifyIdentity", code: 0 });
+      logger.info("api_call", { func: "auth.submitIdentityProfile", params: { realName } });
+      const verifyResult = await authService.submitIdentityProfile(realName, idCard);
+      logger.info("api_resp", { func: "auth.submitIdentityProfile", code: 0 });
 
       let nextUser = this.data.userInfo || {};
       if (verifyResult && verifyResult.userInfo) {
@@ -88,11 +115,11 @@ Page({
       }
 
       userStore.setUserInfo(nextUser);
-      this.setData({ userInfo: nextUser });
-      wx.showToast({ title: "认证成功", icon: "success" });
+      this.setData({ userInfo: normalizeIdentityInfo(nextUser) });
+      wx.showToast({ title: "资料已提交", icon: "success" });
     } catch (error) {
-      logger.error("api_error", { func: "auth.verifyIdentity", err: error.message });
-      wx.showToast({ title: error.message || "认证失败", icon: "none" });
+      logger.error("api_error", { func: "auth.submitIdentityProfile", err: error.message });
+      wx.showToast({ title: error.message || "提交失败", icon: "none" });
     } finally {
       this.setData({ submitLoading: false });
       logger.info("auth_verify_submit_end", {});

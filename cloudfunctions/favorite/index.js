@@ -30,12 +30,20 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message, code = -1) {
-  return { code, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
 }
 
 function hashToken(token) {
@@ -44,6 +52,64 @@ function hashToken(token) {
 
 function getAccessTokenFromEvent(event) {
   return String(event?.auth?.accessToken || "").trim();
+}
+
+async function getActiveHouseById(houseId) {
+  const normalizedHouseId = String(houseId || "").trim();
+  if (!normalizedHouseId) {
+    return null;
+  }
+
+  const detail = await db.collection(HOUSES).doc(normalizedHouseId).get().catch(() => null);
+  const house = detail?.data;
+
+  if (!house || house.status !== "active") {
+    return null;
+  }
+
+  return house;
+}
+
+async function listFavoriteDocsByUserId(userId) {
+  const docs = [];
+  const pageSize = 100;
+  let skip = 0;
+
+  while (true) {
+    // 收藏数据需要先完整过滤掉失效房源，再切分页，避免 total 与 list 不一致。
+    // eslint-disable-next-line no-await-in-loop
+    const res = await db.collection(FAVORITES)
+      .where({ userId })
+      .orderBy("createTime", "desc")
+      .skip(skip)
+      .limit(pageSize)
+      .get();
+
+    const batch = Array.isArray(res?.data) ? res.data : [];
+    docs.push(...batch);
+
+    if (batch.length < pageSize) {
+      break;
+    }
+
+    skip += batch.length;
+  }
+
+  return docs;
+}
+
+async function buildActiveHouseMap(houseIds = []) {
+  const houseMap = {};
+
+  for (const houseId of houseIds) {
+    // eslint-disable-next-line no-await-in-loop
+    const house = await getActiveHouseById(houseId);
+    if (house?._id) {
+      houseMap[house._id] = house;
+    }
+  }
+
+  return houseMap;
 }
 
 async function getSessionByAccessToken(accessToken) {
@@ -115,34 +181,20 @@ async function handleGetList(payload, event) {
 
   const page = Math.max(1, Number(payload.page || 1));
   const pageSize = Math.max(1, Math.min(20, Number(payload.pageSize || 10)));
-  const where = { userId: authState.user.userId };
-
-  const countRes = await db.collection(FAVORITES).where(where).count();
-  const favRes = await db.collection(FAVORITES)
-    .where(where)
-    .orderBy("createTime", "desc")
-    .skip((page - 1) * pageSize)
-    .limit(pageSize)
-    .get();
-
-  const favoriteDocs = favRes.data || [];
+  const favoriteDocs = await listFavoriteDocsByUserId(authState.user.userId);
   const houseIds = favoriteDocs.map((item) => item.houseId).filter(Boolean);
-  let houseMap = {};
-  if (houseIds.length) {
-    const houseRes = await db.collection(HOUSES).where({ _id: _.in(houseIds), status: "active" }).get();
-    houseMap = (houseRes.data || []).reduce((acc, house) => {
-      acc[house._id] = house;
-      return acc;
-    }, {});
-  }
-  const list = favoriteDocs
+  const houseMap = await buildActiveHouseMap(houseIds);
+  const activeFavoriteDocs = favoriteDocs
     .filter((item) => houseMap[item.houseId])
     .map((item) => ({
       ...item,
       houseInfo: houseMap[item.houseId]
     }));
+  const total = activeFavoriteDocs.length;
+  const startIndex = (page - 1) * pageSize;
+  const list = activeFavoriteDocs.slice(startIndex, startIndex + pageSize);
 
-  return success({ list, page, pageSize, total: countRes.total || 0 });
+  return success({ list, page, pageSize, total });
 }
 
 async function handleToggle(payload, event) {
@@ -160,6 +212,11 @@ async function handleToggle(payload, event) {
   if (exists) {
     await db.collection(FAVORITES).doc(exists._id).remove();
     return success({ isFavorite: false });
+  }
+
+  const house = await getActiveHouseById(houseId);
+  if (!house) {
+    return fail("房源不存在或已下架", 404);
   }
 
   await db.collection(FAVORITES).add({

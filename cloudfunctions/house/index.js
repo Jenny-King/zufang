@@ -18,6 +18,9 @@ const SESSION_STATUS = {
   ACTIVE: "active"
 };
 
+const PAYMENT_METHOD_OPTIONS = ["月付", "季付", "半年付", "年付"];
+const PHONE_REGEXP = /^1\d{10}$/;
+
 function createLogger(context) {
   const prefix = `[house][${context?.requestId || "local"}]`;
   return {
@@ -30,12 +33,20 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message, code = -1) {
-  return { code, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
 }
 
 function hashToken(token) {
@@ -44,6 +55,208 @@ function hashToken(token) {
 
 function getAccessTokenFromEvent(event) {
   return String(event?.auth?.accessToken || "").trim();
+}
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+function isPlainObject(value) {
+  return Object.prototype.toString.call(value) === "[object Object]";
+}
+
+function normalizeString(value) {
+  return String(value || "").trim();
+}
+
+function normalizePositiveNumber(value, fieldName) {
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw new Error(`${fieldName} 必须大于 0`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalNumber(value, fieldName) {
+  if (value === undefined || value === null || value === "") {
+    return 0;
+  }
+
+  const normalized = Number(value);
+  if (!Number.isFinite(normalized)) {
+    throw new Error(`${fieldName} 格式错误`);
+  }
+
+  return normalized;
+}
+
+function normalizeMinRentPeriod(value) {
+  if (value === undefined || value === null || value === "") {
+    return 0;
+  }
+
+  const normalized = Number(value);
+  if (!Number.isInteger(normalized) || normalized <= 0) {
+    throw new Error("minRentPeriod 必须是正整数");
+  }
+
+  return normalized;
+}
+
+function normalizeImageList(images, { required = false } = {}) {
+  if (!Array.isArray(images)) {
+    throw new Error("images 必须是数组");
+  }
+
+  const normalized = images
+    .map((item) => normalizeString(item))
+    .filter(Boolean);
+
+  if (required && !normalized.length) {
+    throw new Error("请至少上传 1 张图片");
+  }
+
+  if (!normalized.length && images.length) {
+    throw new Error("images 中包含无效图片地址");
+  }
+
+  return normalized;
+}
+
+function normalizeFacilities(facilities) {
+  if (facilities === undefined) {
+    return {};
+  }
+
+  if (!isPlainObject(facilities)) {
+    throw new Error("facilities 必须是对象");
+  }
+
+  return Object.keys(facilities).reduce((acc, key) => {
+    acc[key] = Boolean(facilities[key]);
+    return acc;
+  }, {});
+}
+
+function validatePaymentMethod(paymentMethod) {
+  const normalized = normalizeString(paymentMethod);
+  if (!PAYMENT_METHOD_OPTIONS.includes(normalized)) {
+    throw new Error("paymentMethod 不合法");
+  }
+  return normalized;
+}
+
+function validateContactPhone(contactPhone) {
+  const normalized = normalizeString(contactPhone);
+  if (!PHONE_REGEXP.test(normalized)) {
+    throw new Error("contactPhone 格式错误");
+  }
+  return normalized;
+}
+
+function buildCreateData(payload) {
+  const title = normalizeString(payload.title);
+  const type = normalizeString(payload.type);
+  const address = normalizeString(payload.address);
+
+  if (!title) {
+    throw new Error("title 不能为空");
+  }
+
+  if (!type) {
+    throw new Error("type 不能为空");
+  }
+
+  if (!address) {
+    throw new Error("address 不能为空");
+  }
+
+  return {
+    title,
+    price: normalizePositiveNumber(payload.price, "price"),
+    paymentMethod: validatePaymentMethod(payload.paymentMethod),
+    minRentPeriod: normalizeMinRentPeriod(payload.minRentPeriod),
+    area: normalizePositiveNumber(payload.area, "area"),
+    type,
+    floor: normalizeString(payload.floor),
+    orientation: normalizeString(payload.orientation),
+    address,
+    description: normalizeString(payload.description),
+    images: normalizeImageList(payload.images, { required: true }),
+    latitude: normalizeOptionalNumber(payload.latitude, "latitude"),
+    longitude: normalizeOptionalNumber(payload.longitude, "longitude"),
+    contactName: normalizeString(payload.contactName),
+    contactPhone: validateContactPhone(payload.contactPhone),
+    facilities: normalizeFacilities(payload.facilities),
+    region: normalizeString(payload.region)
+  };
+}
+
+function buildUpdateData(payload) {
+  const updateData = {};
+
+  if (payload.title !== undefined) {
+    const title = normalizeString(payload.title);
+    if (!title) {
+      throw new Error("title 不能为空");
+    }
+    updateData.title = title;
+  }
+
+  if (payload.price !== undefined) {
+    updateData.price = normalizePositiveNumber(payload.price, "price");
+  }
+
+  if (payload.paymentMethod !== undefined) {
+    updateData.paymentMethod = validatePaymentMethod(payload.paymentMethod);
+  }
+
+  if (payload.minRentPeriod !== undefined) {
+    updateData.minRentPeriod = normalizeMinRentPeriod(payload.minRentPeriod);
+  }
+
+  if (payload.area !== undefined) {
+    updateData.area = normalizePositiveNumber(payload.area, "area");
+  }
+
+  if (payload.type !== undefined) {
+    const type = normalizeString(payload.type);
+    if (!type) {
+      throw new Error("type 不能为空");
+    }
+    updateData.type = type;
+  }
+
+  if (payload.address !== undefined) {
+    const address = normalizeString(payload.address);
+    if (!address) {
+      throw new Error("address 不能为空");
+    }
+    updateData.address = address;
+  }
+
+  if (payload.images !== undefined) {
+    updateData.images = normalizeImageList(payload.images, { required: true });
+  }
+
+  if (payload.contactPhone !== undefined) {
+    updateData.contactPhone = validateContactPhone(payload.contactPhone);
+  }
+
+  if (payload.description !== undefined) updateData.description = normalizeString(payload.description);
+  if (payload.floor !== undefined) updateData.floor = normalizeString(payload.floor);
+  if (payload.orientation !== undefined) updateData.orientation = normalizeString(payload.orientation);
+  if (payload.contactName !== undefined) updateData.contactName = normalizeString(payload.contactName);
+  if (payload.region !== undefined) updateData.region = normalizeString(payload.region);
+  if (payload.latitude !== undefined) updateData.latitude = normalizeOptionalNumber(payload.latitude, "latitude");
+  if (payload.longitude !== undefined) updateData.longitude = normalizeOptionalNumber(payload.longitude, "longitude");
+  if (payload.facilities !== undefined) updateData.facilities = normalizeFacilities(payload.facilities);
+
+  if (!Object.keys(updateData).length) {
+    throw new Error("未提供可更新字段");
+  }
+
+  return updateData;
 }
 
 async function getSessionByAccessToken(accessToken) {
@@ -189,34 +402,21 @@ async function handleCreate(payload, event) {
   if (authState.user.role !== "landlord" && authState.user.role !== "admin") {
     return fail("无发布权限", 403);
   }
-  if (!payload.title || !payload.address || !payload.type || !Number(payload.price)) {
-    return fail("参数不完整");
-  }
 
   const now = new Date();
-  const data = {
-    title: String(payload.title).trim(),
-    price: Number(payload.price),
-    paymentMethod: String(payload.paymentMethod || ""),
-    minRentPeriod: Number(payload.minRentPeriod || 0),
-    area: Number(payload.area || 0),
-    type: String(payload.type || "").trim(),
-    floor: String(payload.floor || "").trim(),
-    orientation: String(payload.orientation || "").trim(),
-    address: String(payload.address || "").trim(),
-    description: String(payload.description || "").trim(),
-    images: Array.isArray(payload.images) ? payload.images : [],
-    latitude: Number(payload.latitude || 0),
-    longitude: Number(payload.longitude || 0),
-    contactName: String(payload.contactName || "").trim(),
-    contactPhone: String(payload.contactPhone || "").trim(),
-    landlordUserId: authState.user.userId,
-    facilities: payload.facilities || {},
-    region: String(payload.region || "").trim(),
-    status: "active",
-    createTime: now,
-    updateTime: now
-  };
+  let data = null;
+
+  try {
+    data = {
+      ...buildCreateData(payload),
+      landlordUserId: authState.user.userId,
+      status: "active",
+      createTime: now,
+      updateTime: now
+    };
+  } catch (error) {
+    return fail(error.message, 400);
+  }
 
   const res = await db.collection(HOUSES).add({ data });
   return success({ _id: res._id });
@@ -242,15 +442,14 @@ async function handleUpdate(payload, event) {
     return fail("无编辑权限", 403);
   }
 
-  const allowFields = [
-    "title", "price", "paymentMethod", "minRentPeriod", "area", "type", "floor",
-    "orientation", "address", "description", "images", "latitude", "longitude",
-    "contactName", "contactPhone", "facilities", "region"
-  ];
-  const updateData = {};
-  allowFields.forEach((field) => {
-    if (payload[field] !== undefined) updateData[field] = payload[field];
-  });
+  let updateData = null;
+
+  try {
+    updateData = buildUpdateData(payload);
+  } catch (error) {
+    return fail(error.message, 400);
+  }
+
   updateData.updateTime = new Date();
 
   await db.collection(HOUSES).doc(houseId).update({ data: updateData });

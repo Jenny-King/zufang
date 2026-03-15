@@ -1,0 +1,37 @@
+<view class="container edit-profile-page">
+  <view class="card form-card">
+    <view wx:if="{{loading}}" class="loading-tip">加载中...</view>
+
+    <view class="form-item">
+      <text class="label">昵称</text>
+      <input class="input" data-field="nickName" value="{{formData.nickName}}" placeholder="请输入昵称" bindinput="onInputChange" />
+    </view>
+
+    <view class="form-item">
+      <text class="label">头像链接</text>
+      <input class="input" data-field="avatarUrl" value="{{formData.avatarUrl}}" placeholder="可选，填写头像 URL" bindinput="onInputChange" />
+    </view>
+
+    <view class="form-item">
+      <text class="label">微信号</text>
+      <input class="input" data-field="wechatId" value="{{formData.wechatId}}" placeholder="请输入微信号" bindinput="onInputChange" />
+    </view>
+
+    <view class="form-item">
+      <text class="label">省份</text>
+      <input class="input" data-field="province" value="{{formData.province}}" placeholder="请输入省份" bindinput="onInputChange" />
+    </view>
+
+    <view class="form-item">
+      <text class="label">城市</text>
+      <input class="input" data-field="city" value="{{formData.city}}" placeholder="请输入城市" bindinput="onInputChange" />
+    </view>
+
+    <view class="form-item">
+      <text class="label">区县</text>
+      <input class="input" data-field="district" value="{{formData.district}}" placeholder="请输入区县" bindinput="onInputChange" />
+    </view>
+
+    <button class="submit-btn" loading="{{submitLoading}}" bindtap="onSubmitTap">保存资料</button>
+  </view>
+</view>

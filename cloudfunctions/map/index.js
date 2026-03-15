@@ -15,12 +15,20 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message) {
-  return { code: -1, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
 }
 
 function requestJson(url) {
@@ -113,6 +121,6 @@ exports.main = async (event, context) => {
     return result;
   } catch (err) {
     logger.error("fail", { action, err: err.message, stack: err.stack });
-    return fail(err.message || "服务异常");
+    return fail(err.message || "服务异常", 500);
   }
 };

@@ -23,7 +23,7 @@ const USER_STATUS = {
   DISABLED: "disabled"
 };
 
-const IDENTITY_STATUS = {
+const IDENTITY_DOC_STATUS = {
   ACTIVE: "active",
   DISABLED: "disabled"
 };
@@ -34,6 +34,18 @@ const SESSION_STATUS = {
 };
 
 const SESSION_EXPIRE_DAYS = 30;
+const SMS_CODE_EXPIRE_MS = 5 * 60 * 1000;
+const SMS_CODE_SEND_COOLDOWN_MS = 60 * 1000;
+const SMS_CODE_MAX_PER_DAY = 10;
+const SMS_CODE_STATUS = {
+  ACTIVE: "active",
+  USED: "used"
+};
+const IDENTITY_PROFILE_STATUS = {
+  UNSUBMITTED: "unsubmitted",
+  PENDING: "pending",
+  APPROVED: "approved"
+};
 
 function createLogger(context) {
   const funcName = context && context.function ? context.function.name : "auth";
@@ -49,12 +61,20 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message, code = -1) {
-  return { code, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
 }
 
 function isPhone(phone) {
@@ -94,6 +114,25 @@ function genAccessToken() {
 
 function getSessionExpireAt() {
   return new Date(Date.now() + SESSION_EXPIRE_DAYS * 24 * 60 * 60 * 1000);
+}
+
+function getIdentityProfileStatus(user) {
+  if (user?.verified) {
+    return IDENTITY_PROFILE_STATUS.APPROVED;
+  }
+
+  const currentStatus = String(user?.identityStatus || "").trim();
+  if (currentStatus === IDENTITY_PROFILE_STATUS.PENDING) {
+    return IDENTITY_PROFILE_STATUS.PENDING;
+  }
+
+  return IDENTITY_PROFILE_STATUS.UNSUBMITTED;
+}
+
+function getTodayStart() {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  return todayStart;
 }
 
 function maskIdCard(idCard) {
@@ -140,7 +179,7 @@ async function getIdentityDocByTypeAndIdentifier(type, identifier) {
 
 async function getIdentityByTypeAndIdentifier(type, identifier) {
   const identity = await getIdentityDocByTypeAndIdentifier(type, identifier);
-  if (!identity || identity.status === IDENTITY_STATUS.DISABLED) {
+  if (!identity || identity.status === IDENTITY_DOC_STATUS.DISABLED) {
     return null;
   }
   return identity;
@@ -156,7 +195,7 @@ async function getWechatIdentityByUserId(userId) {
     .where({
       userId: normalizedUserId,
       type: IDENTITY_TYPE.WECHAT_OPENID,
-      status: _.neq(IDENTITY_STATUS.DISABLED)
+      status: _.neq(IDENTITY_DOC_STATUS.DISABLED)
     })
     .limit(1)
     .get();
@@ -196,6 +235,8 @@ async function serializeUser(user) {
     role: user.role || "tenant",
     phone: user.phone || "",
     verified: Boolean(user.verified),
+    identityStatus: getIdentityProfileStatus(user),
+    identitySubmittedAt: user.identitySubmittedAt || null,
     wechatId: user.wechatId || "",
     province: user.province || "",
     city: user.city || "",
@@ -215,18 +256,18 @@ async function createIdentity(type, identifier, userId) {
   }
 
   const existing = await getIdentityDocByTypeAndIdentifier(normalizedType, normalizedIdentifier);
-  if (existing && existing.status !== IDENTITY_STATUS.DISABLED && existing.userId !== normalizedUserId) {
+  if (existing && existing.status !== IDENTITY_DOC_STATUS.DISABLED && existing.userId !== normalizedUserId) {
     throw new Error("该身份已绑定其他账号");
   }
-  if (existing && existing.status !== IDENTITY_STATUS.DISABLED) {
+  if (existing && existing.status !== IDENTITY_DOC_STATUS.DISABLED) {
     return existing;
   }
 
-  if (existing && existing.status === IDENTITY_STATUS.DISABLED) {
+  if (existing && existing.status === IDENTITY_DOC_STATUS.DISABLED) {
     const reactivated = {
       ...existing,
       userId: normalizedUserId,
-      status: IDENTITY_STATUS.ACTIVE,
+      status: IDENTITY_DOC_STATUS.ACTIVE,
       updateTime: new Date()
     };
 
@@ -235,7 +276,7 @@ async function createIdentity(type, identifier, userId) {
       .update({
         data: {
           userId: normalizedUserId,
-          status: IDENTITY_STATUS.ACTIVE,
+          status: IDENTITY_DOC_STATUS.ACTIVE,
           updateTime: reactivated.updateTime
         }
       });
@@ -249,7 +290,7 @@ async function createIdentity(type, identifier, userId) {
     type: normalizedType,
     identifier: normalizedIdentifier,
     userId: normalizedUserId,
-    status: IDENTITY_STATUS.ACTIVE,
+    status: IDENTITY_DOC_STATUS.ACTIVE,
     createTime: now,
     updateTime: now
   };
@@ -268,7 +309,7 @@ async function disableIdentity(type, identifier) {
     .doc(identity._id)
     .update({
       data: {
-        status: IDENTITY_STATUS.DISABLED,
+        status: IDENTITY_DOC_STATUS.DISABLED,
         updateTime: new Date()
       }
     });
@@ -355,6 +396,30 @@ async function revokeSession(accessToken) {
   return { revoked: true };
 }
 
+async function revokeUserSessionsByUserId(userId) {
+  const normalizedUserId = String(userId || "").trim();
+  if (!normalizedUserId) {
+    return { revoked: 0 };
+  }
+
+  const now = new Date();
+  const res = await db.collection(COLLECTION.USER_SESSIONS)
+    .where({
+      userId: normalizedUserId,
+      status: SESSION_STATUS.ACTIVE
+    })
+    .update({
+      data: {
+        status: SESSION_STATUS.REVOKED,
+        updateTime: now
+      }
+    });
+
+  return {
+    revoked: Number(res?.stats?.updated || 0)
+  };
+}
+
 async function resolveCurrentUser(event) {
   const accessToken = getAccessTokenFromEvent(event);
   if (!accessToken) {
@@ -419,6 +484,7 @@ async function handleWechatLogin(payload, openid, logger) {
     avatarUrl: userInfo.avatarUrl || "",
     role: "tenant",
     verified: false,
+    identityStatus: IDENTITY_PROFILE_STATUS.UNSUBMITTED,
     status: USER_STATUS.ACTIVE,
     loginType: "wx",
     wechatId: "",
@@ -441,32 +507,93 @@ async function handleSendSmsCode(payload) {
     return fail("手机号格式错误");
   }
 
+  const latestCodeRes = await db.collection(COLLECTION.SMS_CODES)
+    .where({ phone })
+    .orderBy("createTime", "desc")
+    .limit(1)
+    .get();
+  const latestRecord = latestCodeRes.data[0] || null;
+  if (latestRecord && Date.now() - new Date(latestRecord.createTime).getTime() < SMS_CODE_SEND_COOLDOWN_MS) {
+    return fail("验证码发送过于频繁，请稍后再试", 400);
+  }
+
+  const todaySendCountRes = await db.collection(COLLECTION.SMS_CODES)
+    .where({
+      phone,
+      createTime: _.gte(getTodayStart())
+    })
+    .count();
+  if (Number(todaySendCountRes.total || 0) >= SMS_CODE_MAX_PER_DAY) {
+    return fail("今日验证码发送次数已达上限，请明天再试", 400);
+  }
+
   const code = genSmsCode();
+  const now = new Date();
   await db.collection(COLLECTION.SMS_CODES).add({
     data: {
       phone,
       code,
-      expireAt: new Date(Date.now() + 5 * 60 * 1000),
-      createTime: new Date()
+      expireAt: new Date(now.getTime() + SMS_CODE_EXPIRE_MS),
+      status: SMS_CODE_STATUS.ACTIVE,
+      createTime: now,
+      updateTime: now
     }
   });
 
-  return success({ phone, expireInSeconds: 300 });
+  return success(
+    {
+      phone,
+      expireInSeconds: Math.floor(SMS_CODE_EXPIRE_MS / 1000),
+      deliveryMode: "mock"
+    },
+    "当前版本使用开发态 mock 验证码，请勿按正式短信能力验收"
+  );
 }
 
-async function checkSmsCode(phone, code) {
+async function getAvailableSmsCodeRecord(phone, code) {
   const res = await db.collection(COLLECTION.SMS_CODES)
-    .where({ phone, code })
+    .where({
+      phone,
+      code,
+      status: _.neq(SMS_CODE_STATUS.USED)
+    })
     .orderBy("createTime", "desc")
     .limit(1)
     .get();
 
   const record = res.data[0];
   if (!record) {
-    return false;
+    return null;
   }
 
-  return new Date(record.expireAt).getTime() > Date.now();
+  if (new Date(record.expireAt).getTime() <= Date.now()) {
+    return null;
+  }
+
+  return record;
+}
+
+async function checkSmsCode(phone, code) {
+  return Boolean(await getAvailableSmsCodeRecord(phone, code));
+}
+
+async function consumeSmsCode(phone, code) {
+  const record = await getAvailableSmsCodeRecord(phone, code);
+  if (!record?._id) {
+    return { valid: false };
+  }
+
+  await db.collection(COLLECTION.SMS_CODES)
+    .doc(record._id)
+    .update({
+      data: {
+        status: SMS_CODE_STATUS.USED,
+        usedAt: new Date(),
+        updateTime: new Date()
+      }
+    });
+
+  return { valid: true, record };
 }
 
 async function handleVerifySmsCode(payload) {
@@ -502,8 +629,8 @@ async function handleLoginWithPhoneCode(payload) {
     return fail("验证码不能为空");
   }
 
-  const valid = await checkSmsCode(phone, code);
-  if (!valid) {
+  const consumeResult = await consumeSmsCode(phone, code);
+  if (!consumeResult.valid) {
     return fail("验证码错误或已过期");
   }
 
@@ -561,6 +688,7 @@ async function handleRegister(payload) {
     role,
     wechatId: String(payload.wechatId || "").trim(),
     verified: false,
+    identityStatus: IDENTITY_PROFILE_STATUS.UNSUBMITTED,
     status: USER_STATUS.ACTIVE,
     loginType: "phone",
     passwordHash: hashPassword(password),
@@ -575,6 +703,47 @@ async function handleRegister(payload) {
   await createIdentity(IDENTITY_TYPE.PHONE, phone, user.userId);
 
   return buildAuthSuccess(user, "register");
+}
+
+async function handleResetPassword(payload) {
+  const phone = String(payload.phone || "").trim();
+  const code = String(payload.code || "").trim();
+  const newPassword = String(payload.newPassword || "");
+
+  if (!isPhone(phone)) {
+    return fail("手机号格式错误");
+  }
+  if (!code) {
+    return fail("验证码不能为空");
+  }
+  if (!newPassword || newPassword.length < 6) {
+    return fail("新密码至少6位");
+  }
+
+  const consumeResult = await consumeSmsCode(phone, code);
+  if (!consumeResult.valid) {
+    return fail("验证码错误或已过期");
+  }
+
+  const user = await getUserByPhone(phone);
+  if (!user) {
+    return fail("用户不存在", 404);
+  }
+
+  await db.collection(COLLECTION.USERS)
+    .doc(user._id)
+    .update({
+      data: {
+        passwordHash: hashPassword(newPassword),
+        updateTime: new Date()
+      }
+    });
+
+  const sessionResult = await revokeUserSessionsByUserId(user.userId);
+  return success({
+    reset: true,
+    revokedSessions: sessionResult.revoked
+  });
 }
 
 async function handleVerifyIdentity(payload, event) {
@@ -592,6 +761,15 @@ async function handleVerifyIdentity(payload, event) {
     return authState.result;
   }
 
+  if (getIdentityProfileStatus(authState.user) === IDENTITY_PROFILE_STATUS.APPROVED) {
+    return success(
+      { userInfo: await serializeUser(authState.user) },
+      "当前账号已通过身份审核"
+    );
+  }
+
+  const now = new Date();
+
   await db.collection(COLLECTION.USERS)
     .doc(authState.user._id)
     .update({
@@ -599,13 +777,18 @@ async function handleVerifyIdentity(payload, event) {
         realName,
         idCardEncrypted: hashPassword(idCard),
         idCardMasked: maskIdCard(idCard),
-        verified: true,
-        updateTime: new Date()
+        verified: false,
+        identityStatus: IDENTITY_PROFILE_STATUS.PENDING,
+        identitySubmittedAt: now,
+        updateTime: now
       }
     });
 
   const latest = await getUserDocByUserId(authState.user.userId);
-  return success({ userInfo: await serializeUser(latest) });
+  return success(
+    { userInfo: await serializeUser(latest) },
+    "身份资料已提交，待人工审核"
+  );
 }
 
 async function handleBindWechat(event, openid) {
@@ -675,6 +858,7 @@ exports.main = async (event, context) => {
     payload: {
       ...payload,
       password: payload.password ? "***" : undefined,
+      newPassword: payload.newPassword ? "***" : undefined,
       code: payload.code ? "***" : undefined
     }
   });
@@ -688,6 +872,7 @@ exports.main = async (event, context) => {
     if (action === "loginWithPhoneCode") result = await handleLoginWithPhoneCode(payload);
     if (action === "loginWithPassword") result = await handleLoginWithPassword(payload);
     if (action === "register") result = await handleRegister(payload);
+    if (action === "resetPassword") result = await handleResetPassword(payload);
     if (action === "verifyIdentity") result = await handleVerifyIdentity(payload, event);
     if (action === "bindWechat") result = await handleBindWechat(event, openid);
     if (action === "unbindWechat") result = await handleUnbindWechat(event, openid);

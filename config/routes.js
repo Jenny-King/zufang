@@ -9,9 +9,12 @@ const SUBPACKAGE_ROUTES = {
   HOUSE_DETAIL: "/package-house/pages/detail/index",
   AUTH_LOGIN: "/package-auth/pages/login/index",
   AUTH_REGISTER: "/package-auth/pages/register/index",
+  AUTH_RESET_PASSWORD: "/package-auth/pages/reset-password/index",
   AUTH_VERIFY: "/package-auth/pages/verify/index",
   PROFILE_FAVORITES: "/package-profile/pages/favorites/index",
   PROFILE_HISTORY: "/package-profile/pages/history/index",
+  PROFILE_EDIT: "/package-profile/pages/edit-profile/index",
+  PROFILE_NOTIFICATIONS: "/package-profile/pages/notifications/index",
   MY_HOUSES: "/package-profile/pages/my-houses/index",
   CHAT_DETAIL: "/package-chat/pages/detail/index"
 };

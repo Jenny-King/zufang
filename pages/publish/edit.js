@@ -3,6 +3,7 @@ const mapService = require("../../services/map.service");
 const authUtils = require("../../utils/auth");
 const { validateHouseForm, isPhone } = require("../../utils/validate");
 const { logger } = require("../../utils/logger");
+const { ROUTES, switchTab } = require("../../config/routes");
 
 const PENDING_PUBLISH_CONTEXT_KEY = "pendingPublishContext";
 const PAYMENT_OPTIONS = ["月付", "季付", "半年付", "年付"];
@@ -661,7 +662,7 @@ Page({
       logger.info("api_resp", { func: this.data.isEdit ? "house.update" : "house.create", code: 0 });
       wx.showToast({ title: this.data.isEdit ? "修改成功" : "发布成功", icon: "success" });
       setTimeout(() => {
-        wx.switchTab({ url: "/pages/home/index" });
+        switchTab(ROUTES.HOME);
       }, 600);
     } catch (error) {
       logger.error("api_error", {

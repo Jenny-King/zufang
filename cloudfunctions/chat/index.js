@@ -31,12 +31,20 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message, code = -1) {
-  return { code, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
 }
 
 function hashToken(token) {
@@ -132,7 +140,10 @@ async function handleGetConversations(event) {
 
   let userMap = {};
   if (targetIds.length) {
-    const userRes = await db.collection(USERS).where({ userId: _.in(targetIds) }).get();
+    const userRes = await db.collection(USERS).where({
+      userId: _.in(targetIds),
+      status: _.neq(USER_STATUS.DISABLED)
+    }).get();
     userMap = (userRes.data || []).reduce((acc, item) => {
       acc[item.userId] = {
         userId: item.userId,
@@ -192,14 +203,23 @@ async function handleCreateConversation(payload, event) {
   }
 
   const targetUserId = String(payload.targetUserId || "").trim();
+  const houseId = String(payload.houseId || "").trim();
   if (!targetUserId) {
     return fail("targetUserId 不能为空");
+  }
+  if (!houseId) {
+    return fail("houseId 不能为空");
   }
   if (targetUserId === authState.user.userId) {
     return fail("不能和自己建立会话");
   }
 
-  const conversationId = buildConversationId(authState.user.userId, targetUserId, String(payload.houseId || "").trim());
+  const targetUser = await getUserByUserId(targetUserId);
+  if (!targetUser) {
+    return fail("目标用户不存在或已失效", 404);
+  }
+
+  const conversationId = buildConversationId(authState.user.userId, targetUserId, houseId);
   const exists = await getConversationById(conversationId);
   if (exists) {
     return success({ conversationId: exists.conversationId });
@@ -210,7 +230,7 @@ async function handleCreateConversation(payload, event) {
     data: {
       conversationId,
       participantIds: [authState.user.userId, targetUserId],
-      houseId: String(payload.houseId || "").trim(),
+      houseId,
       lastMessage: "",
       lastMessageTime: now,
       unreadMap: { [authState.user.userId]: 0, [targetUserId]: 0 },
@@ -241,6 +261,15 @@ async function handleSendMessage(payload, event) {
   }
 
   const receiverId = (conversation.participantIds || []).find((id) => id !== authState.user.userId) || "";
+  if (!receiverId) {
+    return fail("接收方不存在或已失效", 404);
+  }
+
+  const receiverUser = await getUserByUserId(receiverId);
+  if (!receiverUser) {
+    return fail("接收方不存在或已失效", 404);
+  }
+
   const now = new Date();
   const addRes = await db.collection(CHAT_MESSAGES).add({
     data: {

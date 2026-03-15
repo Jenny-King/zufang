@@ -1,0 +1,24 @@
+<view class="container notifications-page">
+  <view wx:if="{{errorText}}" class="error-box">{{errorText}}</view>
+  <view wx:if="{{!loading && list.length === 0}}" class="empty-tip">暂无通知</view>
+
+  <view class="notification-list">
+    <view
+      class="notification-item card {{item.read ? 'read' : 'unread'}}"
+      wx:for="{{list}}"
+      wx:key="_id"
+      data-message-id="{{item._id}}"
+      bindtap="onNotificationTap"
+    >
+      <view class="top-row">
+        <text class="title text-ellipsis">{{item.displayTitle}}</text>
+        <text class="status">{{item.displayStatus}}</text>
+      </view>
+      <view class="content">{{item.displayContent}}</view>
+      <view class="time">{{item.displayTime}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading-tip">加载中...</view>
+  <view wx:if="{{!loading && list.length > 0 && !hasMore}}" class="loading-tip">没有更多了</view>
+</view>

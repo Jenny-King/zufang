@@ -20,6 +20,12 @@ const IDENTITY_STATUS = {
   DISABLED: "disabled"
 };
 
+const IDENTITY_PROFILE_STATUS = {
+  UNSUBMITTED: "unsubmitted",
+  PENDING: "pending",
+  APPROVED: "approved"
+};
+
 const SESSION_STATUS = {
   ACTIVE: "active",
   REVOKED: "revoked"
@@ -41,12 +47,20 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message, code = -1) {
-  return { code, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
 }
 
 function hashToken(token) {
@@ -55,6 +69,19 @@ function hashToken(token) {
 
 function hashPassword(password) {
   return crypto.createHash("sha256").update(String(password || "")).digest("hex");
+}
+
+function getIdentityProfileStatus(user) {
+  if (user?.verified) {
+    return IDENTITY_PROFILE_STATUS.APPROVED;
+  }
+
+  const currentStatus = String(user?.identityStatus || "").trim();
+  if (currentStatus === IDENTITY_PROFILE_STATUS.PENDING) {
+    return IDENTITY_PROFILE_STATUS.PENDING;
+  }
+
+  return IDENTITY_PROFILE_STATUS.UNSUBMITTED;
 }
 
 function sanitizeUser(user, wechatBound = false) {
@@ -69,6 +96,8 @@ function sanitizeUser(user, wechatBound = false) {
     role: user.role || "tenant",
     phone: user.phone || "",
     verified: Boolean(user.verified),
+    identityStatus: getIdentityProfileStatus(user),
+    identitySubmittedAt: user.identitySubmittedAt || null,
     wechatId: user.wechatId || "",
     province: user.province || "",
     city: user.city || "",

@@ -44,6 +44,21 @@ const DEFAULT_TEST_PHONES = [
   "17364071058"
 ];
 
+const CURRENT_CLOUD_ENV_ID = String(cloud.DYNAMIC_CURRENT_ENV || "").trim().toLowerCase();
+const PRODUCTION_ENV_ALIASES = ["prod", "production", "release"];
+const NON_PRODUCTION_ENV_ALIASES = ["dev", "develop", "test", "testing", "trial", "staging", "sandbox", "local"];
+const PRODUCTION_ENV_IDS = [
+  process.env.BOOTSTRAP_PROD_ENV_IDS,
+  process.env.PROD_CLOUD_ENV_ID
+]
+  .flatMap((value) => String(value || "").split(","))
+  .map((item) => item.trim().toLowerCase())
+  .filter(Boolean);
+const ALLOWED_BOOTSTRAP_ENV_IDS = String(process.env.BOOTSTRAP_ALLOWED_ENV_IDS || "")
+  .split(",")
+  .map((item) => item.trim().toLowerCase())
+  .filter(Boolean);
+
 function createLogger(context) {
   const prefix = `[bootstrap][${context?.requestId || "local"}]`;
   return {
@@ -56,19 +71,48 @@ function createLogger(context) {
   };
 }
 
-function success(data) {
-  return { code: 0, data: data || {} };
+function success(data, message = "") {
+  return {
+    code: 0,
+    data: data === undefined ? null : data,
+    message: String(message || "")
+  };
 }
 
-function fail(message) {
-  return { code: -1, message: message || "请求失败" };
+function fail(message, code = -1, data = null) {
+  return {
+    code,
+    data: data === undefined ? null : data,
+    message: message || "请求失败"
+  };
+}
+
+function getCurrentEnvAlias() {
+  return String(process.env.ENV_ALIAS || process.env.CLOUDBASE_ENV_ALIAS || "")
+    .trim()
+    .toLowerCase();
 }
 
 function ensureAllowed(event) {
   const allow = Boolean(event?.payload?.allowBootstrap);
-  const isProd = process.env.NODE_ENV === "production";
-  if (isProd || !allow) {
+  const envAlias = getCurrentEnvAlias();
+  const nodeEnv = String(process.env.NODE_ENV || "").trim().toLowerCase();
+  const isProd = nodeEnv === "production"
+    || PRODUCTION_ENV_ALIASES.includes(envAlias)
+    || PRODUCTION_ENV_IDS.includes(CURRENT_CLOUD_ENV_ID);
+  const isExplicitNonProd = NON_PRODUCTION_ENV_ALIASES.includes(envAlias)
+    || ALLOWED_BOOTSTRAP_ENV_IDS.includes(CURRENT_CLOUD_ENV_ID);
+
+  if (isProd) {
+    throw new Error("生产环境禁止执行 bootstrap/cleanup 操作");
+  }
+
+  if (!allow) {
     throw new Error("当前环境禁止执行初始化，请仅在开发环境手动调用并显式传入 allowBootstrap");
+  }
+
+  if (!isExplicitNonProd) {
+    throw new Error("当前环境未显式标记为开发/测试环境，禁止执行 bootstrap/cleanup 操作；请配置 ENV_ALIAS=dev/test/staging，或将环境 ID 加入 BOOTSTRAP_ALLOWED_ENV_IDS");
   }
 }
 
@@ -375,6 +419,6 @@ exports.main = async (event, context) => {
     return result;
   } catch (err) {
     logger.error("fail", { action, err: err.message, stack: err.stack });
-    return fail(err.message || "服务异常");
+    return fail(err.message || "服务异常", 500);
   }
 };

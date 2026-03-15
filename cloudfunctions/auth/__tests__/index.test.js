@@ -22,6 +22,8 @@ describe("cloudfunction/auth", () => {
       user_identities: [],
       user_sessions: []
     };
+    const db = cloud.database();
+    const originalImplementation = db.collection.getMockImplementation();
 
     const collectionFactory = (name) => ({
       where: jest.fn().mockReturnThis(),
@@ -52,7 +54,7 @@ describe("cloudfunction/auth", () => {
       }))
     });
 
-    cloud.database().collection.mockImplementation((name) => {
+    db.collection.mockImplementation((name) => {
       if (!state[name]) {
         state[name] = [];
       }
@@ -60,28 +62,143 @@ describe("cloudfunction/auth", () => {
     });
     cloud.getWXContext.mockReturnValue({ OPENID: "mock_openid" });
 
-    const res = await main({
-      action: "register",
-      payload: {
-        nickName: "测试租客",
-        phone: "17364071058",
-        password: "17364071058A",
-        role: "tenant"
-      }
-    }, {});
+    try {
+      const res = await main({
+        action: "register",
+        payload: {
+          nickName: "测试租客",
+          phone: "17364071058",
+          password: "17364071058A",
+          role: "tenant"
+        }
+      }, {});
 
-    expect(res.code).toBe(0);
-    expect(res.data).toEqual(expect.objectContaining({
-      accessToken: expect.any(String),
-      userInfo: expect.objectContaining({
-        phone: "17364071058",
-        role: "tenant",
-        wechatBound: false
-      })
-    }));
-    expect(state.users).toHaveLength(1);
-    expect(state.users[0]._openid).toBeUndefined();
-    expect(state.user_identities).toHaveLength(1);
-    expect(state.user_sessions).toHaveLength(1);
+      expect(res.code).toBe(0);
+      expect(res.data).toEqual(expect.objectContaining({
+        accessToken: expect.any(String),
+        userInfo: expect.objectContaining({
+          phone: "17364071058",
+          role: "tenant",
+          wechatBound: false
+        })
+      }));
+      expect(state.users).toHaveLength(1);
+      expect(state.users[0]._openid).toBeUndefined();
+      expect(state.user_identities).toHaveLength(1);
+      expect(state.user_sessions).toHaveLength(1);
+    } finally {
+      db.collection.mockImplementation(originalImplementation);
+    }
+  });
+
+  it("resetPassword updates password hash and revokes active sessions", async () => {
+    const db = cloud.database();
+    const originalImplementation = db.collection.getMockImplementation();
+    const userDoc = {
+      _id: "user_doc_1",
+      userId: "user_1",
+      phone: "17364071058",
+      passwordHash: "old_hash",
+      status: "active"
+    };
+    const identityDoc = {
+      _id: "identity_1",
+      type: "phone",
+      identifier: userDoc.phone,
+      userId: userDoc.userId,
+      status: "active"
+    };
+    const sessionUpdateMock = jest.fn().mockResolvedValue({ stats: { updated: 2 } });
+    const userUpdateMock = jest.fn().mockResolvedValue({ stats: { updated: 1 } });
+
+    db.collection.mockImplementation((name) => {
+      if (name === "sms_codes") {
+        return {
+          where: jest.fn(() => ({
+            orderBy: jest.fn(() => ({
+              limit: jest.fn(() => ({
+                get: jest.fn().mockResolvedValue({
+                  data: [{
+                    phone: userDoc.phone,
+                    code: "123456",
+                    expireAt: new Date(Date.now() + 60 * 1000).toISOString()
+                  }]
+                })
+              }))
+            }))
+          }))
+        };
+      }
+
+      if (name === "user_identities") {
+        return {
+          doc: jest.fn(() => ({
+            get: jest.fn().mockResolvedValue({ data: identityDoc })
+          }))
+        };
+      }
+
+      if (name === "users") {
+        return {
+          where: jest.fn(() => ({
+            limit: jest.fn(() => ({
+              get: jest.fn().mockResolvedValue({ data: [userDoc] })
+            }))
+          })),
+          doc: jest.fn(() => ({
+            update: userUpdateMock
+          }))
+        };
+      }
+
+      if (name === "user_sessions") {
+        return {
+          where: jest.fn(() => ({
+            update: sessionUpdateMock
+          }))
+        };
+      }
+
+      return {
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        skip: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        count: jest.fn().mockResolvedValue({ total: 0 }),
+        get: jest.fn().mockResolvedValue({ data: [] }),
+        add: jest.fn().mockResolvedValue({ _id: "mock_id" }),
+        update: jest.fn().mockResolvedValue({ stats: { updated: 1 } }),
+        remove: jest.fn().mockResolvedValue({ stats: { removed: 1 } }),
+        doc: jest.fn(() => ({
+          get: jest.fn().mockResolvedValue({ data: {} }),
+          update: jest.fn().mockResolvedValue({ stats: { updated: 1 } })
+        }))
+      };
+    });
+
+    try {
+      const res = await main({
+        action: "resetPassword",
+        payload: {
+          phone: userDoc.phone,
+          code: "123456",
+          newPassword: "reset123A"
+        }
+      }, {});
+
+      expect(res.code).toBe(0);
+      expect(res.data).toEqual({
+        reset: true,
+        revokedSessions: 2
+      });
+      expect(userUpdateMock).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({
+          passwordHash: expect.any(String)
+        })
+      }));
+      expect(sessionUpdateMock).toHaveBeenCalledTimes(1);
+    } finally {
+      db.collection.mockImplementation(originalImplementation);
+    }
   });
 });

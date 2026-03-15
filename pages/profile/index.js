@@ -7,6 +7,18 @@ const { ROUTES, navigateTo } = require("../../config/routes");
 const { maskPhone, fallbackText } = require("../../utils/format");
 const { logger } = require("../../utils/logger");
 
+function formatIdentityStatus(userInfo = {}) {
+  if (userInfo.verified) {
+    return "身份已审核通过";
+  }
+
+  if (userInfo.identityStatus === "pending") {
+    return "身份资料待审核";
+  }
+
+  return "未提交身份资料";
+}
+
 Page({
   data: {
     loading: false,
@@ -66,7 +78,7 @@ Page({
       displayName: fallbackText(userInfo.nickName, "未设置昵称"),
       displayPhone: userInfo.phone ? maskPhone(String(userInfo.phone)) : "未绑定手机号",
       displayRole: this.formatRole(userInfo.role),
-      displayVerifyStatus: userInfo.verified ? "已实名认证" : "未实名认证",
+      displayVerifyStatus: formatIdentityStatus(userInfo),
       displayWechatStatus: userInfo.wechatBound ? "已绑定微信" : "未绑定微信"
     };
     logger.debug("profile_normalize_user_end", {});
@@ -145,6 +157,26 @@ Page({
     }
     navigateTo(ROUTES.PROFILE_HISTORY);
     logger.info("profile_go_history_end", {});
+  },
+
+  onGoEditProfile() {
+    logger.info("profile_go_edit_profile_start", {});
+    if (!authUtils.requireLogin({ redirect: true })) {
+      logger.info("profile_go_edit_profile_end", { blocked: "not_login" });
+      return;
+    }
+    navigateTo(ROUTES.PROFILE_EDIT);
+    logger.info("profile_go_edit_profile_end", {});
+  },
+
+  onGoNotifications() {
+    logger.info("profile_go_notifications_start", {});
+    if (!authUtils.requireLogin({ redirect: true })) {
+      logger.info("profile_go_notifications_end", { blocked: "not_login" });
+      return;
+    }
+    navigateTo(ROUTES.PROFILE_NOTIFICATIONS);
+    logger.info("profile_go_notifications_end", {});
   },
 
   async onBindWechatTap() {

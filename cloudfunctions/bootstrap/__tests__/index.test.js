@@ -2,9 +2,32 @@ const cloud = require("wx-server-sdk");
 const { main } = require("../index");
 
 describe("cloudfunction/bootstrap", () => {
+  const originalEnvAlias = process.env.ENV_ALIAS;
+
+  beforeEach(() => {
+    process.env.ENV_ALIAS = "dev";
+  });
+
+  afterAll(() => {
+    if (originalEnvAlias === undefined) {
+      delete process.env.ENV_ALIAS;
+      return;
+    }
+    process.env.ENV_ALIAS = originalEnvAlias;
+  });
+
   it("without allowBootstrap returns code -1", async () => {
     const res = await main({ action: "initCollections", payload: {} }, {});
     expect(res.code).toBe(-1);
+  });
+
+  it("blocks bootstrap when env alias is prod even if allowBootstrap is true", async () => {
+    process.env.ENV_ALIAS = "prod";
+
+    const res = await main({ action: "initAll", payload: { allowBootstrap: true } }, {});
+
+    expect(res.code).toBe(-1);
+    expect(res.message).toBe("生产环境禁止执行 bootstrap/cleanup 操作");
   });
 
   it("initAll with allowBootstrap returns bootstrap summary", async () => {

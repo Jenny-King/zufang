@@ -1,4 +1,5 @@
 const { callCloud } = require("./cloud/call");
+const { uploadToCloud } = require("./cloud/upload");
 const { REQUEST_DEFAULT } = require("../config/constants");
 
 function assertNonEmptyString(value, fieldName) {
@@ -62,13 +63,7 @@ async function getMyHouseList(params = {}) {
 async function uploadHouseImage(filePath, cloudPath) {
   assertNonEmptyString(filePath, "filePath");
   assertNonEmptyString(cloudPath, "cloudPath");
-
-  const uploadRes = await wx.cloud.uploadFile({
-    cloudPath: cloudPath.trim(),
-    filePath: filePath.trim()
-  });
-
-  return uploadRes.fileID;
+  return uploadToCloud(filePath, cloudPath);
 }
 
 module.exports = {

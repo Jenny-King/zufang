@@ -37,5 +37,9 @@
       还没有账号？
       <text class="link" bindtap="onGoRegisterTap">去注册</text>
     </view>
+    <view class="bottom-text">
+      忘记密码？
+      <text class="link" bindtap="onGoResetPasswordTap">去重置</text>
+    </view>
   </view>
 </view>
