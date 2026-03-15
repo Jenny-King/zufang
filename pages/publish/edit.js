@@ -1,4 +1,5 @@
 const houseService = require("../../services/house.service");
+const mapService = require("../../services/map.service");
 const authUtils = require("../../utils/auth");
 const { validateHouseForm, isPhone } = require("../../utils/validate");
 const { logger } = require("../../utils/logger");
@@ -104,6 +105,23 @@ function getRegionIndex(regionOptions = [], region = "") {
 
   const index = regionOptions.findIndex((item) => item.value === region);
   return index >= 0 ? index : 0;
+}
+
+function matchRegionByLocation(regionOptions = [], location = {}, formattedAddress = "") {
+  const latitude = Number(location.lat || location.latitude || 0);
+  const longitude = Number(location.lng || location.longitude || 0);
+  const normalizedAddress = String(formattedAddress || "").trim();
+
+  if (!latitude || !longitude || !normalizedAddress) {
+    return "";
+  }
+
+  const matched = (Array.isArray(regionOptions) ? regionOptions : [])
+    .filter((item) => item && item.value && item.value !== "全市")
+    .sort((left, right) => String(right.value || "").length - String(left.value || "").length)
+    .find((item) => normalizedAddress.includes(String(item.value || "").trim()));
+
+  return matched ? matched.value : "";
 }
 
 Page({
@@ -440,6 +458,38 @@ Page({
         "formData.latitude": latitude,
         "formData.longitude": longitude
       });
+
+      try {
+        const geocodeResult = await mapService.geocodeAddress(address);
+        const formattedAddress = String(geocodeResult?.formattedAddress || "").trim();
+        const nextAddress = formattedAddress || address || this.data.formData.address;
+        const nextData = {
+          "formData.address": nextAddress
+        };
+
+        if (!this.data.formData.region) {
+          const matchedRegion = matchRegionByLocation(
+            this.data.regionOptions,
+            geocodeResult?.location || {
+              latitude: geocodeResult?.latitude,
+              longitude: geocodeResult?.longitude
+            },
+            nextAddress
+          );
+
+          if (matchedRegion) {
+            nextData["formData.region"] = matchedRegion;
+            nextData.selectedRegionIndex = getRegionIndex(this.data.regionOptions, matchedRegion);
+          }
+        }
+
+        this.setData(nextData);
+      } catch (error) {
+        logger.warn("publish_choose_location_geocode_failed", {
+          err: error.message || "地址解析失败"
+        });
+      }
+
       logger.info("publish_choose_location_end", {
         address,
         latitude,

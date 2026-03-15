@@ -99,6 +99,28 @@
   font-size: 24rpx;
 }
 
+.address-text {
+  font-size: 24rpx;
+  color: var(--color-text-secondary, #888);
+  padding: 12rpx 0;
+}
+
+.nearby-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.nearby-title {
+  font-size: 28rpx;
+}
+
+.nearby-distance {
+  font-size: 24rpx;
+  color: #999;
+}
+
 .bottom-bar {
   position: fixed;
   left: 0;

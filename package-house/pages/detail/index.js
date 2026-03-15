@@ -2,6 +2,7 @@ const houseService = require("../../../services/house.service");
 const favoriteService = require("../../../services/favorite.service");
 const historyService = require("../../../services/history.service");
 const chatService = require("../../../services/chat.service");
+const mapService = require("../../../services/map.service");
 const authUtils = require("../../../utils/auth");
 const { formatPrice, formatDate, fallbackText } = require("../../../utils/format");
 const { ROUTES, navigateTo } = require("../../../config/routes");
@@ -13,6 +14,8 @@ Page({
     loading: false,
     favoriteLoading: false,
     houseDetail: null,
+    nearbyList: [],
+    mapMarkers: [],
     isFavorite: false,
     errorText: ""
   },
@@ -85,16 +88,63 @@ Page({
       });
       const detail = await houseService.getHouseDetail(this.data.houseId);
       logger.info("api_resp", { func: "house.getDetail", code: 0 });
+      const houseDetail = this.normalizeDetail(detail);
       this.setData({
-        houseDetail: this.normalizeDetail(detail)
+        houseDetail
       });
+      await this.loadNearbyData(houseDetail);
     } catch (error) {
       const message = error.message || "房源详情加载失败";
-      this.setData({ errorText: message });
+      this.setData({
+        errorText: message,
+        nearbyList: [],
+        mapMarkers: []
+      });
       logger.error("api_error", { func: "house.getDetail", err: message });
     } finally {
       this.setData({ loading: false });
       logger.info("house_detail_fetch_end", {});
+    }
+  },
+
+  async loadNearbyData(houseDetail) {
+    const latitude = Number(houseDetail?.latitude || 0);
+    const longitude = Number(houseDetail?.longitude || 0);
+
+    if (!latitude) {
+      this.setData({
+        nearbyList: [],
+        mapMarkers: []
+      });
+      return;
+    }
+
+    const mapMarkers = [{
+      id: 0,
+      latitude,
+      longitude,
+      title: houseDetail.displayTitle
+    }];
+
+    this.setData({
+      nearbyList: [],
+      mapMarkers
+    });
+
+    try {
+      const nearbyList = await mapService.searchNearby(latitude, longitude);
+      this.setData({
+        nearbyList: Array.isArray(nearbyList) ? nearbyList : [],
+        mapMarkers
+      });
+    } catch (error) {
+      logger.warn("house_detail_nearby_failed", {
+        err: error.message || "周边设施加载失败"
+      });
+      this.setData({
+        nearbyList: [],
+        mapMarkers
+      });
     }
   },
 

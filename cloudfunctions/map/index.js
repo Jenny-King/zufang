@@ -47,45 +47,57 @@ async function handleGeocode(payload) {
   const address = String(payload.address || "").trim();
   if (!address) return fail("address 不能为空");
   const key = process.env.TENCENT_MAP_KEY || "";
+  const fallbackLocation = { lat: 0, lng: 0 };
   if (!key) {
     return success({
-      location: { lat: 0, lng: 0 },
-      address,
+      latitude: 0,
+      longitude: 0,
+      formattedAddress: address,
+      location: fallbackLocation,
       message: "未配置地图 key，返回占位坐标"
     });
   }
   const url = `https://apis.map.qq.com/ws/geocoder/v1/?address=${encodeURIComponent(address)}&key=${encodeURIComponent(key)}`;
   const data = await requestJson(url);
   if (Number(data.status) !== 0) return fail(data.message || "地址解析失败");
+  const location = data.result?.location || fallbackLocation;
+  const latitude = Number(location.lat || 0);
+  const longitude = Number(location.lng || 0);
+  const formattedAddress = String(
+    data.result?.formatted_addresses?.recommend
+      || data.result?.address
+      || address
+  ).trim() || address;
   return success({
-    address,
-    location: data.result?.location || { lat: 0, lng: 0 }
+    latitude,
+    longitude,
+    formattedAddress,
+    location: {
+      lat: latitude,
+      lng: longitude
+    }
   });
 }
 
 async function handleSearchNearby(payload) {
   const latitude = Number(payload.latitude);
   const longitude = Number(payload.longitude);
-  const keywords = String(payload.keywords || "").trim() || "小区";
+  const keywords = String(payload.keywords || "").trim() || "超市|地铁|公交";
   if (Number.isNaN(latitude) || Number.isNaN(longitude)) return fail("经纬度格式错误");
   const key = process.env.TENCENT_MAP_KEY || "";
   if (!key) {
-    return success({
-      list: [],
-      message: "未配置地图 key，返回空结果"
-    });
+    return success([]);
   }
   const boundary = `nearby(${latitude},${longitude},1000)`;
   const url = `https://apis.map.qq.com/ws/place/v1/search?keyword=${encodeURIComponent(keywords)}&boundary=${encodeURIComponent(boundary)}&key=${encodeURIComponent(key)}`;
   const data = await requestJson(url);
   if (Number(data.status) !== 0) return fail(data.message || "周边检索失败");
-  const list = (data.data || []).map((item) => ({
-    id: item.id,
+  const list = (data.data || []).slice(0, 5).map((item) => ({
     title: item.title,
-    address: item.address,
-    location: item.location
+    distance: Number(item._distance || item.distance || 0),
+    category: item.category || item.type || ""
   }));
-  return success({ list });
+  return success(list);
 }
 
 exports.main = async (event, context) => {

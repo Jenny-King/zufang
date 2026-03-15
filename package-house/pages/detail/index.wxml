@@ -24,6 +24,30 @@
       <view class="section-content">{{houseDetail.displayDescription}}</view>
     </view>
 
+    <view wx:if="{{houseDetail.latitude}}" class="card">
+      <view class="section-title">位置</view>
+      <map
+        latitude="{{houseDetail.latitude}}"
+        longitude="{{houseDetail.longitude}}"
+        markers="{{mapMarkers}}"
+        scale="15"
+        style="width:100%;height:300rpx"
+      />
+      <view class="address-text">{{houseDetail.displayAddress}}</view>
+    </view>
+
+    <view wx:if="{{nearbyList.length}}" class="card">
+      <view class="section-title">周边设施</view>
+      <view
+        wx:for="{{nearbyList}}"
+        wx:key="index"
+        class="nearby-item"
+      >
+        <text class="nearby-title">{{item.title}}</text>
+        <text class="nearby-distance">{{item.distance}}m</text>
+      </view>
+    </view>
+
     <view class="section">
       <view class="section-title">配套设施</view>
       <view class="facility-list">

@@ -70,6 +70,13 @@
     <view class="form-item">
       <text class="label">位置定位</text>
       <button size="mini" bindtap="onChooseLocation">选择位置</button>
+      <map
+        wx:if="{{formData.latitude}}"
+        latitude="{{formData.latitude}}"
+        longitude="{{formData.longitude}}"
+        scale="15"
+        style="width:100%;height:240rpx;margin-top:16rpx;border-radius:8rpx;"
+      />
       <view class="helper-text">{{formData.address || '未选择位置'}}</view>
       <view class="helper-text">坐标：{{formData.latitude}}, {{formData.longitude}}</view>
     </view>

@@ -102,6 +102,14 @@ async function resolveCurrentUser(event) {
   return { ok: true, user };
 }
 
+function canManageHouse(user, house) {
+  if (!user || !house) {
+    return false;
+  }
+
+  return house.landlordUserId === user.userId || user.role === "admin";
+}
+
 function buildListWhere(payload) {
   const where = { status: "active" };
   if (payload.keyword) {
@@ -145,12 +153,20 @@ async function handleGetList(payload) {
   });
 }
 
-async function handleGetDetail(payload) {
+async function handleGetDetail(payload, event) {
   const houseId = String(payload.houseId || "").trim();
   if (!houseId) return fail("houseId 不能为空");
   const detail = await db.collection(HOUSES).doc(houseId).get().catch(() => null);
-  if (!detail || !detail.data || detail.data.status !== "active") return fail("房源不存在", 404);
-  return success(detail.data);
+  const house = detail?.data;
+  if (!house || house.status === "deleted") return fail("房源不存在", 404);
+  if (house.status === "active") return success(house);
+
+  const authState = await resolveCurrentUser(event);
+  if (!authState.ok || !canManageHouse(authState.user, house)) {
+    return fail("房源不存在", 404);
+  }
+
+  return success(house);
 }
 
 async function handleGetRegions() {
@@ -219,10 +235,10 @@ async function handleUpdate(payload, event) {
 
   const detail = await db.collection(HOUSES).doc(houseId).get().catch(() => null);
   const house = detail?.data;
-  if (!house || house.status !== "active") {
+  if (!house || house.status === "deleted") {
     return fail("房源不存在", 404);
   }
-  if (house.landlordUserId !== authState.user.userId && authState.user.role !== "admin") {
+  if (!canManageHouse(authState.user, house)) {
     return fail("无编辑权限", 403);
   }
 
@@ -254,10 +270,10 @@ async function handleRemove(payload, event) {
 
   const detail = await db.collection(HOUSES).doc(houseId).get().catch(() => null);
   const house = detail?.data;
-  if (!house || house.status !== "active") {
+  if (!house || house.status === "deleted") {
     return fail("房源不存在", 404);
   }
-  if (house.landlordUserId !== authState.user.userId && authState.user.role !== "admin") {
+  if (!canManageHouse(authState.user, house)) {
     return fail("无删除权限", 403);
   }
 
@@ -299,7 +315,7 @@ exports.main = async (event, context) => {
     let result = fail("未知 action");
     if (action === "getList") result = await handleGetList(payload);
     if (action === "getRegions") result = await handleGetRegions();
-    if (action === "getDetail") result = await handleGetDetail(payload);
+    if (action === "getDetail") result = await handleGetDetail(payload, event);
     if (action === "create") result = await handleCreate(payload, event);
     if (action === "update") result = await handleUpdate(payload, event);
     if (action === "remove") result = await handleRemove(payload, event);
