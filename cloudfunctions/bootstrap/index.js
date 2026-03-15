@@ -28,6 +28,7 @@ const REQUIRED_COLLECTIONS = [
   "regions",
   "sms_codes"
 ];
+const REGION_WRITE_BATCH_SIZE = 20;
 
 const DEFAULT_REGION_GROUPS = {
   深圳市: [
@@ -301,6 +302,16 @@ function buildCollectionSummary(collections) {
   };
 }
 
+async function runInBatches(tasks = [], batchSize = REGION_WRITE_BATCH_SIZE, handler = async () => {}) {
+  const normalizedTasks = Array.isArray(tasks) ? tasks : [];
+  const normalizedBatchSize = Math.max(1, Number(batchSize) || 1);
+
+  for (let index = 0; index < normalizedTasks.length; index += normalizedBatchSize) {
+    const currentBatch = normalizedTasks.slice(index, index + normalizedBatchSize);
+    await Promise.all(currentBatch.map((task) => handler(task)));
+  }
+}
+
 async function initRegionsInternal(regionCollectionState = null) {
   const ensuredRegionCollection = regionCollectionState || await ensureCollectionReady("regions");
 
@@ -318,18 +329,15 @@ async function initRegionsInternal(regionCollectionState = null) {
     .limit(200)
     .get();
   const existingRegions = existingRegionRes.data || [];
+  const updateTasks = [];
+  const insertTasks = [];
   let inserted = 0;
+  let updated = 0;
 
   for (const region of DEFAULT_REGIONS) {
     const matchedRegion = existingRegions.find((item) => (
       String(item?.city || "").trim() === region.city
       && String(item?.name || "").trim() === region.name
-    )) || existingRegions.find((item) => (
-      !String(item?.city || "").trim()
-      && (
-        String(item?.name || "").trim() === region.name
-        || (region.name === "全市" && String(item?.name || "").trim() === "全部区域")
-      )
     ));
 
     if (matchedRegion?._id) {
@@ -345,8 +353,10 @@ async function initRegionsInternal(regionCollectionState = null) {
       );
 
       if (shouldSync) {
-        // eslint-disable-next-line no-await-in-loop
-        await regionCollection.doc(matchedRegion._id).update({ data: region });
+        updateTasks.push({
+          regionId: matchedRegion._id,
+          data: region
+        });
         matchedRegion.city = region.city;
         matchedRegion.name = region.name;
         matchedRegion.order = region.order;
@@ -355,18 +365,27 @@ async function initRegionsInternal(regionCollectionState = null) {
       continue;
     }
 
-    // eslint-disable-next-line no-await-in-loop
-    const addRes = await regionCollection.add({ data: region });
+    insertTasks.push(region);
     existingRegions.push({
       ...region,
-      _id: addRes?._id || ""
+      _id: `pending_insert_${insertTasks.length}`
     });
-    inserted += 1;
   }
+
+  await runInBatches(updateTasks, REGION_WRITE_BATCH_SIZE, async (task) => {
+    await regionCollection.doc(task.regionId).update({ data: task.data });
+    updated += 1;
+  });
+
+  await runInBatches(insertTasks, REGION_WRITE_BATCH_SIZE, async (region) => {
+    await regionCollection.add({ data: region });
+    inserted += 1;
+  });
 
   return {
     inserted,
-    skipped: inserted === 0,
+    updated,
+    skipped: inserted === 0 && updated === 0,
     collectionReady: true,
     collection: ensuredRegionCollection
   };
