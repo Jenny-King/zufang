@@ -1,6 +1,6 @@
 # 租房微信小程序 - docs/AGENTS.md
 
-> 本文件用于给 Codex / Cursor / 其他代码代理快速建立项目上下文。所有自动生成、重构和联调工作都应优先遵守本文件，再参考 `docs/PRD-需求文档.md`、`docs/技术架构设计.md`、`docs/接口设计说明.md` 与 `docs/数据库设计说明.md`。
+> 本文件用于给 Codex / Cursor / 其他代码代理快速建立项目上下文。所有自动生成、重构和联调工作都应优先遵守本文件，再参考 `docs/文档导航.md`、`docs/PRD-需求文档.md`、`docs/技术架构设计.md`、`docs/接口设计说明.md` 与 `docs/数据库设计说明.md`。
 
 ---
 
@@ -42,6 +42,7 @@ coding4-1/
 │  ├─ history/
 │  ├─ chat/
 │  ├─ map/
+│  ├─ support/
 │  └─ bootstrap/
 ├─ config/
 │  ├─ constants.js
@@ -60,8 +61,10 @@ coding4-1/
 │  ├─ edit-profile/
 │  ├─ favorites/
 │  ├─ history/
-│  ├─ my-houses/
-│  └─ notifications/
+│  ├─ notifications/
+│  ├─ settings/
+│  ├─ support-center/
+│  └─ my-houses/   (legacy page, no longer registered in app.json)
 ├─ pages/
 │  ├─ home/
 │  ├─ publish/
@@ -168,28 +171,31 @@ function getHouseList(params) {
 主要页面：
 
 - `pages/home/index`：房源列表
+- `pages/publish/index`：房源管理首页（Tab“发布”）
 - `package-house/pages/detail/index`：房源详情
-- `pages/publish/edit`：发布 / 编辑房源
-- `package-profile/pages/my-houses/index`：房东房源管理
+- `pages/publish/edit`：发布 / 编辑房源三步表单
 - `pages/chat/index`：会话列表
 - `package-chat/pages/detail/index`：聊天详情
-- `pages/profile/index`：个人中心，包含微信绑定 / 解绑、角色切换、退出登录
+- `pages/profile/index`：个人中心，包含统计卡、客服中心、设置、账号缓存与退出登录
 - `package-auth/pages/login/index`：微信登录 / 手机号登录
 - `package-auth/pages/register/index`：注册
 - `package-auth/pages/reset-password/index`：重置密码
 - `package-auth/pages/verify/index`：身份资料登记
 - `package-profile/pages/edit-profile/index`：资料编辑
+- `package-profile/pages/support-center/index`：客服中心与问题反馈
+- `package-profile/pages/settings/index`：设置页
 - `package-profile/pages/notifications/index`：通知列表
 
 主要云函数：
 
 - `auth`：登录、注册、验证码、重置密码、身份资料登记、微信绑定、退出登录
-- `user`：当前用户资料、资料更新、修改密码、切换角色、注销账号
-- `house`：房源 CRUD、我的房源
+- `user`：当前用户资料、资料更新、换绑手机号、绑定邮箱、修改密码、切换角色、注销账号
+- `house`：房源列表、详情、区域、发布 / 编辑 / 删除 / 我的房源
 - `favorite`：收藏
 - `history`：浏览历史
 - `chat`：会话、消息、通知
 - `map`：地理编码、逆地理编码、周边搜索
+- `support`：问题反馈提交与反馈成功通知
 - `bootstrap`：初始化集合与区域数据，仅开发环境允许
 
 ---
@@ -209,6 +215,7 @@ function getHouseList(params) {
 | `chat_messages` | 聊天消息 |
 | `messages` | 系统 / 业务通知 |
 | `regions` | 区域筛选基础数据 |
+| `support_feedbacks` | 客服反馈工单 |
 
 ---
 

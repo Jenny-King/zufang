@@ -7,9 +7,10 @@
 ## 主要能力
 
 - 微信 / 手机号登录
-- 密码重置与身份资料登记
-- 房源发布、编辑、删除
+- 密码重置、换绑手机号、绑定邮箱
+- 房源发布、编辑、上下架、删除
 - 收藏、浏览历史、聊天与通知
+- 在线客服、问题反馈与系统回执通知
 - 开发环境 bootstrap 初始化与测试数据脚本
 
 ## 关键目录
@@ -18,7 +19,7 @@
 - `services/`：前端服务层与云能力封装
 - `cloudfunctions/`：云函数
 - `scripts/`：联调、部署、测试数据相关脚本
-- `docs/`：架构、接口、数据库与维护文档
+- `docs/`：需求、架构、接口、数据库与联调文档
 
 ## 开发说明
 
@@ -28,9 +29,13 @@
 - `bootstrap` 仅允许在显式标记的非生产环境执行
 - `map` 云函数接入腾讯地图 WebService 时，需要在云开发控制台配置环境变量 `TENCENT_MAP_KEY` 和 `TENCENT_MAP_SK`
 
-更多上下文请先阅读：
+## 文档导航
 
-- `docs/AGENTS.md`
-- `docs/技术架构设计.md`
-- `docs/接口设计说明.md`
-- `docs/数据库设计说明.md`
+- [docs/文档导航.md](D:/Grade4-2/coding4-1/docs/文档导航.md)：先读这份，了解各文档用途
+- [docs/AGENTS.md](D:/Grade4-2/coding4-1/docs/AGENTS.md)：给 Codex / Cursor / 代码代理的仓库上下文
+- [docs/PRD-需求文档.md](D:/Grade4-2/coding4-1/docs/PRD-需求文档.md)：产品需求与范围
+- [docs/技术架构设计.md](D:/Grade4-2/coding4-1/docs/技术架构设计.md)：系统架构、分层、路由与云函数设计
+- [docs/接口设计说明.md](D:/Grade4-2/coding4-1/docs/接口设计说明.md)：前端 service 与云函数 action 约定
+- [docs/数据库设计说明.md](D:/Grade4-2/coding4-1/docs/数据库设计说明.md)：集合设计与数据约束
+- [docs/开发规范说明.md](D:/Grade4-2/coding4-1/docs/开发规范说明.md)：编码与分层规范
+- [docs/测试与联调指南.md](D:/Grade4-2/coding4-1/docs/测试与联调指南.md)：测试账号、联调命令与核心验收清单
