@@ -5,6 +5,7 @@ const authUtils = require("../../utils/auth");
 const { validateHouseForm, isPhone } = require("../../utils/validate");
 const { logger } = require("../../utils/logger");
 const { ROUTES, switchTab } = require("../../config/routes");
+const toast = require("../../utils/toast");
 
 const PENDING_PUBLISH_CONTEXT_KEY = "pendingPublishContext";
 const PROFILE_ENTRY_HIGHLIGHT_KEY = "profileEntryHighlight";
@@ -12,9 +13,9 @@ const MIN_RENT_PERIOD_OPTIONS = [1, 3, 6, 12];
 const ORIENTATION_OPTIONS = ["东", "南", "西", "北", "东南", "东北", "西南", "西北"];
 const FALLBACK_REGION_OPTIONS = [{ label: "全部区域", value: "" }];
 const STEP_LIST = [
-  { key: "base", label: "基础信息" },
-  { key: "location", label: "位置描述" },
-  { key: "contact", label: "联系与提交" }
+  { key: "base", label: "基本信息" },
+  { key: "location", label: "上传图片" },
+  { key: "contact", label: "价格设置" }
 ];
 const ROOM_OPTIONS = [
   { label: "请选择室", value: 0 },
@@ -360,6 +361,7 @@ Page({
     isEdit: false,
     houseId: "",
     stepList: STEP_LIST,
+    stepLabels: STEP_LIST.map((item) => item.label),
     currentStep: 0,
     submitting: false,
     loadingDetail: false,
@@ -395,7 +397,7 @@ Page({
     }
 
     if (!authUtils.canPublishHouse()) {
-      wx.showToast({ title: "仅房东可发布房源", icon: "none" });
+      await toast.error("仅房东可发布房源");
       logger.info("publish_edit_onload_end", { blocked: "role_denied" });
       return;
     }
@@ -635,7 +637,11 @@ Page({
         houseId: normalizedHouseId,
         errorText: "",
         formData,
-        imageList: (detail.images || []).map((url) => ({ url })),
+        imageList: (detail.images || []).map((url) => ({
+          url,
+          progress: 100,
+          uploading: false
+        })),
         selectedRoomIndex: layoutState.selectedRoomIndex,
         selectedHallIndex: layoutState.selectedHallIndex,
         selectedBathIndex: layoutState.selectedBathIndex,
@@ -658,7 +664,7 @@ Page({
       this.setData({
         errorText: error.message || "房源详情加载失败"
       });
-      wx.showToast({ title: error.message || "加载失败", icon: "none" });
+      await toast.error(error.message || "加载失败");
     } finally {
       if (requestId === this.detailRequestId) {
         this.setData({ loadingDetail: false });
@@ -786,7 +792,7 @@ Page({
       const result = await wx.chooseLocation();
       if (!result || Object.prototype.toString.call(result) !== "[object Object]") {
         logger.warn("publish_choose_location_empty_result", {});
-        wx.showToast({ title: "未获取到定位结果", icon: "none" });
+        await toast.error("未获取到定位结果");
         return;
       }
       const address = buildPickedLocationAddress(result.address, result.name);
@@ -849,7 +855,7 @@ Page({
       logger.error("publish_choose_location_failed", {
         error: error?.message || errMsg || "定位选择失败"
       });
-      wx.showToast({ title: "定位选择失败", icon: "none" });
+      await toast.error("定位选择失败");
     }
   },
 
@@ -859,7 +865,7 @@ Page({
       const currentCount = this.data.imageList.length;
       const maxCount = 9;
       if (currentCount >= maxCount) {
-        wx.showToast({ title: "最多上传9张图片", icon: "none" });
+        await toast.error("最多上传9张图片");
         logger.info("publish_choose_images_end", { blocked: "reach_limit" });
         return;
       }
@@ -872,7 +878,9 @@ Page({
 
       const selected = (res.tempFiles || []).map((item) => ({
         url: item.tempFilePath,
-        tempFilePath: item.tempFilePath
+        tempFilePath: item.tempFilePath,
+        progress: 0,
+        uploading: false
       }));
 
       this.setData({
@@ -916,7 +924,7 @@ Page({
 
     const validationResult = this.validateStep(this.data.currentStep);
     if (!validationResult.valid) {
-      wx.showToast({ title: validationResult.message, icon: "none" });
+      toast.error(validationResult.message);
       return;
     }
 
@@ -936,7 +944,7 @@ Page({
   onNextStepTap() {
     const validationResult = this.validateStep(this.data.currentStep);
     if (!validationResult.valid) {
-      wx.showToast({ title: validationResult.message, icon: "none" });
+      toast.error(validationResult.message);
       return;
     }
 
@@ -996,11 +1004,37 @@ Page({
       const cloudPath = `houses/${userId}/${Date.now()}_${i}.${extension}`;
 
       try {
-        // 图片按顺序上传，便于稳定生成云存储路径并在失败时及时停止。
+        this.setData({
+          [`imageList[${i}].uploading`]: true,
+          [`imageList[${i}].progress`]: 0
+        });
+        const uploadTask = wx.cloud.uploadFile({
+          cloudPath,
+          filePath: sourcePath.trim()
+        });
+
+        if (uploadTask && typeof uploadTask.onProgressUpdate === "function") {
+          uploadTask.onProgressUpdate((progressEvent = {}) => {
+            this.setData({
+              [`imageList[${i}].progress`]: Number(progressEvent.progress || 0)
+            });
+          });
+        }
+
         // eslint-disable-next-line no-await-in-loop
-        const fileID = await houseService.uploadHouseImage(sourcePath, cloudPath);
+        const uploadRes = await uploadTask;
+        const fileID = uploadRes.fileID;
+        this.setData({
+          [`imageList[${i}].url`]: fileID,
+          [`imageList[${i}].uploading`]: false,
+          [`imageList[${i}].progress`]: 100
+        });
         uploaded.push(fileID);
       } catch (error) {
+        this.setData({
+          [`imageList[${i}].uploading`]: false,
+          [`imageList[${i}].progress`]: 0
+        });
         logger.error("publish_upload_single_failed", {
           index: i,
           error: error.message
@@ -1022,19 +1056,19 @@ Page({
 
     const baseCheck = validateHouseForm(this.data.formData);
     if (!baseCheck.valid) {
-      wx.showToast({ title: baseCheck.message, icon: "none" });
+      await toast.error(baseCheck.message);
       logger.info("publish_submit_end", { blocked: "invalid_house_form" });
       return;
     }
 
     if (!isPhone(this.data.formData.contactPhone)) {
-      wx.showToast({ title: "联系电话格式错误", icon: "none" });
+      await toast.error("联系电话格式错误");
       logger.info("publish_submit_end", { blocked: "invalid_phone" });
       return;
     }
 
     if (!this.data.imageList.length) {
-      wx.showToast({ title: "请至少上传1张图片", icon: "none" });
+      await toast.error("请至少上传1张图片");
       logger.info("publish_submit_end", { blocked: "no_images" });
       return;
     }
@@ -1057,7 +1091,7 @@ Page({
       }
 
       logger.info("api_resp", { func: this.data.isEdit ? "house.update" : "house.create", code: 0 });
-      wx.showToast({ title: this.data.isEdit ? "修改成功" : "发布成功", icon: "success" });
+      await toast.success(this.data.isEdit ? "修改成功" : "发布成功");
       setTimeout(() => {
         switchTab(ROUTES.PUBLISH);
       }, 600);
@@ -1066,7 +1100,7 @@ Page({
         func: this.data.isEdit ? "house.update" : "house.create",
         err: error.message
       });
-      wx.showToast({ title: error.message || "提交失败", icon: "none" });
+      await toast.error(error.message || "提交失败");
     } finally {
       this.setData({ submitting: false });
       logger.info("publish_submit_end", {});
@@ -1081,10 +1115,18 @@ Page({
 
     const validationResult = this.validateStep(this.data.currentStep);
     if (!validationResult.valid) {
-      wx.showToast({ title: validationResult.message, icon: "none" });
+      await toast.error(validationResult.message);
       return;
     }
 
     await this.submitHouse();
+  },
+
+  async reloadHouseDetail() {
+    if (!this.data.houseId) {
+      return;
+    }
+
+    await this.loadHouseDetail(this.data.houseId, { resetBeforeLoad: true });
   }
 });

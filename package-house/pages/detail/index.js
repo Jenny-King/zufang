@@ -7,6 +7,7 @@ const authUtils = require("../../../utils/auth");
 const { formatPrice, formatDate, fallbackText } = require("../../../utils/format");
 const { ROUTES, navigateTo } = require("../../../config/routes");
 const { logger } = require("../../../utils/logger");
+const toast = require("../../../utils/toast");
 
 const FACILITY_LABEL_MAP = {
   elevator: "电梯",
@@ -33,6 +34,7 @@ Page({
     nearbyList: [],
     mapMarkers: [],
     isFavorite: false,
+    swiperCurrent: 0,
     errorText: ""
   },
 
@@ -108,7 +110,8 @@ Page({
       logger.info("api_resp", { func: "house.getDetail", code: 0 });
       const houseDetail = this.normalizeDetail(detail);
       this.setData({
-        houseDetail
+        houseDetail,
+        swiperCurrent: 0
       });
       await this.loadNearbyData(houseDetail);
     } catch (error) {
@@ -219,6 +222,12 @@ Page({
     logger.info("house_detail_preview_end", {});
   },
 
+  onSwiperChange(event) {
+    this.setData({
+      swiperCurrent: Number(event.detail.current || 0)
+    });
+  },
+
   async onToggleFavoriteTap() {
     logger.info("house_detail_toggle_fav_start", {});
     if (!authUtils.requireLogin({ redirect: true })) {
@@ -242,13 +251,10 @@ Page({
         ? result.isFavorite
         : !this.data.isFavorite;
       this.setData({ isFavorite });
-      wx.showToast({
-        title: isFavorite ? "已收藏" : "已取消收藏",
-        icon: "none"
-      });
+      await toast.info(isFavorite ? "已收藏" : "已取消收藏");
     } catch (error) {
       logger.error("api_error", { func: "favorite.toggle", err: error.message });
-      wx.showToast({ title: error.message || "操作失败", icon: "none" });
+      await toast.error(error.message || "操作失败");
     } finally {
       this.setData({ favoriteLoading: false });
       logger.info("house_detail_toggle_fav_end", {});
@@ -268,7 +274,7 @@ Page({
     }
     const targetUserId = detail.landlordUserId || "";
     if (!targetUserId) {
-      wx.showToast({ title: "房东信息缺失", icon: "none" });
+      await toast.error("房东信息缺失");
       logger.info("house_detail_contact_end", { blocked: "missing_landlord" });
       return;
     }
@@ -288,7 +294,7 @@ Page({
       });
     } catch (error) {
       logger.error("api_error", { func: "chat.createConversation", err: error.message });
-      wx.showToast({ title: error.message || "无法发起会话", icon: "none" });
+      await toast.error(error.message || "无法发起会话");
     } finally {
       logger.info("house_detail_contact_end", {});
     }

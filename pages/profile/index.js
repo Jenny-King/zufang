@@ -9,6 +9,7 @@ const { USER_ROLE } = require("../../config/constants");
 const { ROUTES, navigateTo } = require("../../config/routes");
 const { maskPhone, fallbackText } = require("../../utils/format");
 const { logger } = require("../../utils/logger");
+const toast = require("../../utils/toast");
 
 function formatIdentityStatus(userInfo = {}) {
   if (userInfo.verified) {
@@ -216,7 +217,7 @@ Page({
       if (!authUtils.isLoggedIn()) {
         this.resetDashboardStats();
       }
-      wx.showToast({ title: error.message || "用户信息刷新失败", icon: "none" });
+      await toast.error(error.message || "用户信息刷新失败");
     } finally {
       this.setData({ loading: false });
       logger.info("profile_refresh_user_end", {});
@@ -305,13 +306,13 @@ Page({
 
       const nickName = String(modalRes.content || "").trim();
       if (!nickName) {
-        wx.showToast({ title: "昵称不能为空", icon: "none" });
+        await toast.error("昵称不能为空");
         logger.info("profile_edit_nickname_end", { blocked: "empty_name" });
         return;
       }
 
       if (nickName === currentName) {
-        wx.showToast({ title: "昵称未变化", icon: "none" });
+        await toast.info("昵称未变化");
         logger.info("profile_edit_nickname_end", { blocked: "same_name" });
         return;
       }
@@ -321,10 +322,10 @@ Page({
       logger.info("api_resp", { func: "user.updateProfile", code: 0 });
       userStore.setUserInfo(nextUser);
       this.syncAccountSnapshot();
-      wx.showToast({ title: "昵称已更新", icon: "success" });
+      await toast.success("昵称已更新");
     } catch (error) {
       logger.error("profile_edit_nickname_failed", { error: error.message });
-      wx.showToast({ title: error.message || "昵称修改失败", icon: "none" });
+      await toast.error(error.message || "昵称修改失败");
     } finally {
       logger.info("profile_edit_nickname_end", {});
     }
@@ -361,7 +362,7 @@ Page({
       const nextUser = await userService.updateProfile({ avatarUrl });
       userStore.setUserInfo(nextUser);
       this.syncAccountSnapshot();
-      wx.showToast({ title: "头像已更新", icon: "success" });
+      await toast.success("头像已更新");
     } catch (error) {
       const message = error?.errMsg || error?.message || "";
       if (message.includes("cancel")) {
@@ -369,7 +370,7 @@ Page({
         return;
       }
       logger.error("api_error", { func: "user.uploadAvatar", err: message });
-      wx.showToast({ title: message || "头像上传失败", icon: "none" });
+      await toast.error(message || "头像上传失败");
     } finally {
       this.setData({ avatarUploading: false });
       logger.info("profile_avatar_upload_end", {});
@@ -468,14 +469,14 @@ Page({
       if (nextUser && authUtils.isLoggedIn()) {
         await this.refreshCurrentUser();
         await this.refreshDashboardStats();
-        wx.showToast({ title: "账号已注销，已切换其他账号", icon: "success" });
+        await toast.success("账号已注销，已切换其他账号");
       } else {
         this.resetDashboardStats();
-        wx.showToast({ title: "账号已注销", icon: "success" });
+        await toast.success("账号已注销");
       }
     } catch (error) {
       logger.error("api_error", { func: "user.deleteAccount", err: error.message });
-      wx.showToast({ title: error.message || "账号注销失败", icon: "none" });
+      await toast.error(error.message || "账号注销失败");
     } finally {
       logger.info("profile_delete_account_end", {});
     }
@@ -507,7 +508,7 @@ Page({
     }
 
     if (this.data.userInfo && this.data.userInfo.wechatBound) {
-      wx.showToast({ title: "当前账号已绑定微信", icon: "none" });
+      await toast.info("当前账号已绑定微信");
       logger.info("profile_bind_wechat_end", { blocked: "already_bound" });
       return;
     }
@@ -519,10 +520,10 @@ Page({
       const nextUser = result && result.userInfo ? result.userInfo : await userStore.refreshCurrentUser();
       userStore.setUserInfo(nextUser);
       this.syncAccountSnapshot();
-      wx.showToast({ title: "微信绑定成功", icon: "success" });
+      await toast.success("微信绑定成功");
     } catch (error) {
       logger.error("api_error", { func: "auth.bindWechat", err: error.message });
-      wx.showToast({ title: error.message || "微信绑定失败", icon: "none" });
+      await toast.error(error.message || "微信绑定失败");
     } finally {
       logger.info("profile_bind_wechat_end", {});
     }
@@ -536,7 +537,7 @@ Page({
     }
 
     if (!this.data.userInfo || !this.data.userInfo.wechatBound) {
-      wx.showToast({ title: "当前账号未绑定微信", icon: "none" });
+      await toast.info("当前账号未绑定微信");
       logger.info("profile_unbind_wechat_end", { blocked: "not_bound" });
       return;
     }
@@ -548,10 +549,10 @@ Page({
       const nextUser = result && result.userInfo ? result.userInfo : await userStore.refreshCurrentUser();
       userStore.setUserInfo(nextUser);
       this.syncAccountSnapshot();
-      wx.showToast({ title: "微信解绑成功", icon: "success" });
+      await toast.success("微信解绑成功");
     } catch (error) {
       logger.error("api_error", { func: "auth.unbindWechat", err: error.message });
-      wx.showToast({ title: error.message || "微信解绑失败", icon: "none" });
+      await toast.error(error.message || "微信解绑失败");
     } finally {
       logger.info("profile_unbind_wechat_end", {});
     }
@@ -574,10 +575,10 @@ Page({
       userStore.setUserInfo(userInfo);
       this.syncAccountSnapshot();
       await this.refreshDashboardStats();
-      wx.showToast({ title: "角色切换成功", icon: "success" });
+      await toast.success("角色切换成功");
     } catch (error) {
       logger.error("api_error", { func: "user.switchRole", err: error.message });
-      wx.showToast({ title: error.message || "角色切换失败", icon: "none" });
+      await toast.error(error.message || "角色切换失败");
     } finally {
       logger.info("profile_switch_role_end", {});
     }
@@ -633,7 +634,7 @@ Page({
     const currentUserId = this.data.userInfo?.userId || "";
     if (targetAccount.userId === currentUserId) {
       this.setData({ accountSwitcherVisible: false });
-      wx.showToast({ title: "已是当前账号", icon: "none" });
+      await toast.info("已是当前账号");
       logger.info("profile_select_account_end", { blocked: "same_account" });
       return;
     }
@@ -643,14 +644,14 @@ Page({
       this.setData({ accountSwitcherVisible: false });
       await this.refreshCurrentUser();
       await this.refreshDashboardStats();
-      wx.showToast({ title: `已切换到${targetAccount.displayName}`, icon: "success" });
+      await toast.success(`已切换到${targetAccount.displayName}`);
     } catch (error) {
       this.syncAccountSnapshot();
       if (!authUtils.isLoggedIn()) {
         this.resetDashboardStats();
       }
       logger.error("profile_select_account_failed", { error: error.message });
-      wx.showToast({ title: error.message || "切换账号失败", icon: "none" });
+      await toast.error(error.message || "切换账号失败");
     } finally {
       logger.info("profile_select_account_end", { userId: targetUserId });
     }
@@ -704,10 +705,10 @@ Page({
         this.resetDashboardStats();
       }
 
-      wx.showToast({ title: "登记记录已删除", icon: "success" });
+      await toast.success("登记记录已删除");
     } catch (error) {
       logger.error("profile_remove_account_failed", { error: error.message });
-      wx.showToast({ title: error.message || "删除失败", icon: "none" });
+      await toast.error(error.message || "删除失败");
     } finally {
       this.setData({ removingAccountId: "" });
       logger.info("profile_remove_account_end", { userId: targetUserId });
@@ -731,10 +732,10 @@ Page({
     if (nextUser && authUtils.isLoggedIn()) {
       await this.refreshCurrentUser();
       await this.refreshDashboardStats();
-      wx.showToast({ title: "已退出当前账号，并切换到其他账号", icon: "success" });
+      await toast.success("已退出当前账号，并切换到其他账号");
     } else {
       this.resetDashboardStats();
-      wx.showToast({ title: "已退出当前账号", icon: "success" });
+      await toast.success("已退出当前账号");
     }
     logger.info("profile_logout_end", {});
   }

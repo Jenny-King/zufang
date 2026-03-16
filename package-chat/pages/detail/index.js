@@ -1,7 +1,7 @@
 const chatService = require("../../../services/chat.service");
 const authUtils = require("../../../utils/auth");
-const { formatDate } = require("../../../utils/format");
 const { logger } = require("../../../utils/logger");
+const toast = require("../../../utils/toast");
 
 const POLL_INTERVAL = 5000;
 
@@ -136,10 +136,11 @@ Page({
       ...item,
       _viewId: `msg_${item._id || index}`,
       isSelf: item.senderId === currentUserId,
-      displayTime: item.createTime ? formatDate(item.createTime) : ""
+      displayTime: item.createTime ? this.formatTime(item.createTime) : ""
     }));
-    logger.debug("chat_detail_normalize_end", { count: normalized.length });
-    return normalized;
+    const processed = this.processMessages(normalized);
+    logger.debug("chat_detail_normalize_end", { count: processed.length });
+    return processed;
   },
 
   async loadMessages(options = {}) {
@@ -207,6 +208,34 @@ Page({
     logger.debug("chat_detail_input_end", {});
   },
 
+  processMessages(msgs = []) {
+    let lastStamp = 0;
+    return msgs.map((message) => {
+      const currentStamp = new Date(message.createTime || 0).getTime();
+      const gap = currentStamp - lastStamp > 5 * 60 * 1000;
+      if (gap) {
+        lastStamp = currentStamp;
+      }
+      return {
+        ...message,
+        showTime: gap,
+        timeLabel: this.formatTime(message.createTime)
+      };
+    });
+  },
+
+  formatTime(ts) {
+    const date = new Date(ts);
+    const hm = `${date.getHours()}:${String(date.getMinutes()).padStart(2, "0")}`;
+    const today = new Date();
+    if (date.toDateString() === today.toDateString()) {
+      return hm;
+    }
+    return `${date.getMonth() + 1}月${date.getDate()}日 ${hm}`;
+  },
+
+  // TODO: 图片消息发送需要现有上传链路支持，当前仓库未提供可复用的图片消息存储流程，先保持文本发送稳定。
+
   async onSendTap() {
     logger.info("chat_detail_send_start", {});
     if (this.data.sending) {
@@ -215,12 +244,12 @@ Page({
     }
     const content = String(this.data.inputValue || "").trim();
     if (!content) {
-      wx.showToast({ title: "请输入消息内容", icon: "none" });
+      await toast.error("请输入消息内容");
       logger.info("chat_detail_send_end", { blocked: "empty_content" });
       return;
     }
     if (!this.data.conversationId) {
-      wx.showToast({ title: "会话初始化失败", icon: "none" });
+      await toast.error("会话初始化失败");
       logger.info("chat_detail_send_end", { blocked: "empty_conversation" });
       return;
     }
@@ -238,7 +267,7 @@ Page({
       await this.markAsRead({ silent: true });
     } catch (error) {
       logger.error("api_error", { func: "chat.sendMessage", err: error.message });
-      wx.showToast({ title: error.message || "发送失败", icon: "none" });
+      await toast.error(error.message || "发送失败");
     } finally {
       this.setData({ sending: false });
       logger.info("chat_detail_send_end", {});

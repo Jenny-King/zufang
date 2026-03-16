@@ -5,6 +5,7 @@ const { ROUTES, redirectTo, switchTab } = require("../../../config/routes");
 const { maskPhone, fallbackText } = require("../../../utils/format");
 const { isPhone, isNonEmptyString } = require("../../../utils/validate");
 const { logger } = require("../../../utils/logger");
+const toast = require("../../../utils/toast");
 
 const LOGIN_MODE = {
   CODE: "code",
@@ -69,6 +70,10 @@ Page({
     phone: "",
     code: "",
     password: "",
+    showPwd: false,
+    errors: {},
+    cdSecs: 0,
+    cdRunning: false,
     sendingCode: false,
     submitLoading: false,
     cachedAccounts: []
@@ -84,6 +89,10 @@ Page({
     this.loadCachedAccounts();
   },
 
+  onUnload() {
+    this.clearCountdown();
+  },
+
   loadCachedAccounts() {
     this.setData({
       cachedAccounts: buildCachedAccounts()
@@ -97,26 +106,38 @@ Page({
       logger.warn("auth_login_mode_change_invalid", { mode });
       return;
     }
-    this.setData({ mode });
+    this.setData({
+      mode,
+      errors: {}
+    });
     logger.info("auth_login_mode_change_end", { mode });
   },
 
   onInputPhone(event) {
     logger.debug("auth_login_input_phone_start", {});
     this.setData({ phone: event.detail.value || "" });
+    this.clearFieldError("phone");
     logger.debug("auth_login_input_phone_end", {});
   },
 
   onInputCode(event) {
     logger.debug("auth_login_input_code_start", {});
     this.setData({ code: event.detail.value || "" });
+    this.clearFieldError("code");
     logger.debug("auth_login_input_code_end", {});
   },
 
   onInputPassword(event) {
     logger.debug("auth_login_input_password_start", {});
     this.setData({ password: event.detail.value || "" });
+    this.clearFieldError("password");
     logger.debug("auth_login_input_password_end", {});
+  },
+
+  onTogglePassword() {
+    this.setData({
+      showPwd: !this.data.showPwd
+    });
   },
 
   async onWechatLoginTap() {
@@ -147,12 +168,12 @@ Page({
 
       userStore.setSession(session);
       this.loadCachedAccounts();
-      wx.showToast({ title: "登录成功", icon: "success" });
+      await toast.success("登录成功");
       switchTab(ROUTES.HOME);
     } catch (error) {
       const errorMessage = getErrorMessage(error, "微信登录失败");
       logger.error("api_error", { func: "auth.wechatLogin", err: errorMessage });
-      wx.showToast({ title: errorMessage, icon: "none" });
+      await toast.error(errorMessage);
     } finally {
       this.setData({ submitLoading: false });
       logger.info("auth_login_wechat_end", {});
@@ -161,13 +182,19 @@ Page({
 
   async onSendCodeTap() {
     logger.info("auth_login_send_code_start", {});
-    if (this.data.sendingCode) {
-      logger.info("auth_login_send_code_end", { blocked: "sending" });
+    if (this.data.sendingCode || this.data.cdRunning) {
+      logger.info("auth_login_send_code_end", { blocked: this.data.cdRunning ? "countdown" : "sending" });
       return;
     }
     const phone = String(this.data.phone || "").trim();
     if (!isPhone(phone)) {
-      wx.showToast({ title: "手机号格式错误", icon: "none" });
+      this.setData({
+        errors: {
+          ...this.data.errors,
+          phone: "请输入正确的手机号"
+        }
+      });
+      await toast.error("手机号格式错误");
       logger.info("auth_login_send_code_end", { blocked: "invalid_phone" });
       return;
     }
@@ -177,10 +204,11 @@ Page({
       logger.info("api_call", { func: "auth.sendSmsCode", params: { phone } });
       await authService.sendSmsCode(phone);
       logger.info("api_resp", { func: "auth.sendSmsCode", code: 0 });
-      wx.showToast({ title: "验证码已发送", icon: "success" });
+      this.startCountdown();
+      await toast.success("验证码已发送");
     } catch (error) {
       logger.error("api_error", { func: "auth.sendSmsCode", err: error.message });
-      wx.showToast({ title: error.message || "发送失败", icon: "none" });
+      await toast.error(error.message || "发送失败");
     } finally {
       this.setData({ sendingCode: false });
       logger.info("auth_login_send_code_end", {});
@@ -194,33 +222,26 @@ Page({
       return;
     }
 
-    const phone = String(this.data.phone || "").trim();
-    if (!isPhone(phone)) {
-      wx.showToast({ title: "手机号格式错误", icon: "none" });
-      logger.info("auth_login_submit_end", { blocked: "invalid_phone" });
+    const errors = this.validateForm();
+    if (Object.keys(errors).length) {
+      this.setData({ errors });
+      await toast.error(Object.values(errors)[0]);
+      logger.info("auth_login_submit_end", { blocked: "invalid_form" });
       return;
     }
+
+    const phone = String(this.data.phone || "").trim();
 
     this.setData({ submitLoading: true });
     try {
       let session = null;
       if (this.data.mode === LOGIN_MODE.CODE) {
         const code = String(this.data.code || "").trim();
-        if (!isNonEmptyString(code)) {
-          wx.showToast({ title: "请输入验证码", icon: "none" });
-          logger.info("auth_login_submit_end", { blocked: "empty_code" });
-          return;
-        }
         logger.info("api_call", { func: "auth.loginWithPhoneCode", params: { phone } });
         session = await authService.loginWithPhoneCode(phone, code);
         logger.info("api_resp", { func: "auth.loginWithPhoneCode", code: 0 });
       } else {
         const password = this.data.password || "";
-        if (!isNonEmptyString(password)) {
-          wx.showToast({ title: "请输入密码", icon: "none" });
-          logger.info("auth_login_submit_end", { blocked: "empty_password" });
-          return;
-        }
         logger.info("api_call", { func: "auth.loginWithPassword", params: { phone } });
         session = await authService.loginWithPassword(phone, password);
         logger.info("api_resp", { func: "auth.loginWithPassword", code: 0 });
@@ -228,14 +249,14 @@ Page({
 
       userStore.setSession(session);
       this.loadCachedAccounts();
-      wx.showToast({ title: "登录成功", icon: "success" });
+      await toast.success("登录成功");
       switchTab(ROUTES.HOME);
     } catch (error) {
       const funcName = this.data.mode === LOGIN_MODE.CODE
         ? "auth.loginWithPhoneCode"
         : "auth.loginWithPassword";
       logger.error("api_error", { func: funcName, err: error.message });
-      wx.showToast({ title: error.message || "登录失败", icon: "none" });
+      await toast.error(error.message || "登录失败");
     } finally {
       this.setData({ submitLoading: false });
       logger.info("auth_login_submit_end", {});
@@ -266,14 +287,72 @@ Page({
       userStore.switchAccount(userId);
       await userStore.refreshCurrentUser();
       this.loadCachedAccounts();
-      wx.showToast({ title: "已切换账号", icon: "success" });
+      await toast.success("已切换账号");
       switchTab(ROUTES.HOME);
       logger.info("auth_login_quick_account_end", { userId });
     } catch (error) {
       this.loadCachedAccounts();
       logger.error("auth_login_quick_account_failed", { userId, error: error.message });
-      wx.showToast({ title: error.message || "账号状态已失效，请重新登录", icon: "none" });
+      await toast.error(error.message || "账号状态已失效，请重新登录");
       logger.info("auth_login_quick_account_end", { blocked: "refresh_failed", userId });
     }
+  },
+
+  startCountdown() {
+    this.clearCountdown();
+    this.setData({ cdSecs: 60, cdRunning: true });
+    this._cdTimer = setInterval(() => {
+      const s = this.data.cdSecs - 1;
+      if (s <= 0) {
+        this.clearCountdown();
+        this.setData({ cdSecs: 0, cdRunning: false });
+      } else {
+        this.setData({ cdSecs: s });
+      }
+    }, 1000);
+  },
+
+  clearCountdown() {
+    if (this._cdTimer) {
+      clearInterval(this._cdTimer);
+      this._cdTimer = null;
+    }
+  },
+
+  clearFieldError(field) {
+    if (!this.data.errors[field]) {
+      return;
+    }
+
+    const nextErrors = {
+      ...this.data.errors
+    };
+    delete nextErrors[field];
+    this.setData({ errors: nextErrors });
+  },
+
+  validateForm() {
+    const phone = String(this.data.phone || "").trim();
+    const code = String(this.data.code || "").trim();
+    const password = String(this.data.password || "");
+    const errors = {};
+
+    if (!isPhone(phone)) {
+      errors.phone = "请输入正确的手机号";
+    }
+
+    if (this.data.mode === LOGIN_MODE.CODE) {
+      if (!isNonEmptyString(code) || code.length < 4) {
+        errors.code = "请输入正确的验证码";
+      }
+    }
+
+    if (this.data.mode === LOGIN_MODE.PASSWORD) {
+      if (!isNonEmptyString(password) || password.length < 6) {
+        errors.password = "密码至少 6 位";
+      }
+    }
+
+    return errors;
   }
 });

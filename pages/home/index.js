@@ -11,6 +11,7 @@ const { ROUTES, navigateTo } = require("../../config/routes");
 const { formatPrice, formatDate, fallbackText } = require("../../utils/format");
 const storage = require("../../utils/storage");
 const { logger } = require("../../utils/logger");
+const toast = require("../../utils/toast");
 
 const FALLBACK_REGION_OPTIONS = [{ label: "全部区域", value: "" }];
 const FALLBACK_CITY_LABEL = "深圳";
@@ -195,6 +196,18 @@ function sortBySelectedTab(list = [], sortValue = HOUSE_SORT_BY.LATEST) {
   });
 }
 
+function getHasActiveFilter(data = {}) {
+  return Boolean(
+    String(data.keyword || "").trim()
+    || String(data.keywordDraft || "").trim()
+    || String(data.selectedCityRaw || "").trim()
+    || Number(data.selectedRegionIndex || 0) > 0
+    || Number(data.selectedTypeIndex || 0) > 0
+    || Number(data.selectedPriceIndex || 0) > 0
+    || String(data.selectedListSort || HOUSE_SORT_BY.LATEST) !== HOUSE_SORT_BY.LATEST
+  );
+}
+
 Page({
   data: {
     keyword: "",
@@ -227,6 +240,10 @@ Page({
     locationReady: false,
     locationLoading: false,
     locationErrorText: "",
+    statusBarHeight: 0,
+    topBarStyle: "",
+    scrollAreaStyle: "",
+    hasActiveFilter: false,
     loading: false,
     refreshing: false,
     errorText: ""
@@ -234,8 +251,10 @@ Page({
 
   async onLoad(options) {
     logger.info("page_load", { page: "home", query: options || {} });
+    this.initTopBarMetrics();
     this.restoreCachedLocation();
     await this.initPage();
+    this.measureTopBarHeight();
   },
 
   async onPullDownRefresh() {
@@ -299,6 +318,7 @@ Page({
       ...buildLocationState({ city: fallbackCity }, "fallback")
     });
     this.syncRegionScopeWithCity(fallbackCity, { preserveRegion: true });
+    this.syncHasActiveFilter(buildLocationState({ city: fallbackCity }, "fallback"));
     logger.info("home_apply_fallback_location_end", { city: fallbackCity });
   },
 
@@ -315,10 +335,12 @@ Page({
       || (preserveRegion ? this.data.regionOptions[this.data.selectedRegionIndex]?.value || "" : "");
     const selectedRegionIndex = getRegionIndex(scopedRegionOptions, currentRegion);
 
-    this.setData({
+    const nextState = {
       regionOptions: scopedRegionOptions,
       selectedRegionIndex
-    });
+    };
+    this.setData(nextState);
+    this.syncHasActiveFilter(nextState);
 
     logger.info("home_sync_region_scope_end", {
       city: String(city || "").trim(),
@@ -336,12 +358,14 @@ Page({
       const cityOptions = buildCityOptions(allRegionOptions);
       const scopedCity = this.data.selectedCityRaw || this.data.currentCityRaw || getFallbackCityFromRegions(allRegionOptions);
       const regionOptions = filterRegionOptionsByCity(allRegionOptions, scopedCity);
-      this.setData({
+      const nextState = {
         allRegionOptions,
         cityOptions,
         regionOptions,
         selectedRegionIndex: getRegionIndex(regionOptions, this.data.regionOptions[this.data.selectedRegionIndex]?.value || "")
-      });
+      };
+      this.setData(nextState);
+      this.syncHasActiveFilter(nextState);
       logger.info("api_resp", {
         func: "house.getRegions",
         code: 0,
@@ -519,13 +543,17 @@ Page({
 
   onKeywordInput(event) {
     logger.debug("home_keyword_input_start", {});
-    this.setData({ keywordDraft: event.detail.value || "" });
+    const keywordDraft = event.detail.value || "";
+    this.setData({ keywordDraft });
+    this.syncHasActiveFilter({ keywordDraft });
     logger.debug("home_keyword_input_end", { keywordDraft: this.data.keywordDraft });
   },
 
   async onSearchTap() {
     logger.info("home_search_tap_start", {});
-    this.setData({ keyword: this.data.keywordDraft || "" });
+    const keyword = this.data.keywordDraft || "";
+    this.setData({ keyword });
+    this.syncHasActiveFilter({ keyword });
     await this.refreshList();
     logger.info("home_search_tap_end", {});
   },
@@ -540,10 +568,12 @@ Page({
     if (!cityOptions.length) {
       const refreshed = await this.refreshCurrentLocation({ silent: false, fromTap: true });
       if (refreshed) {
-        this.setData({
+        const nextState = {
           selectedCityRaw: "",
           selectedCityLabel: ""
-        });
+        };
+        this.setData(nextState);
+        this.syncHasActiveFilter(nextState);
         this.syncRegionScopeWithCity(this.data.currentCityRaw, { preserveRegion: false });
         await this.refreshList();
       }
@@ -567,10 +597,12 @@ Page({
       if (selectedIndex === refreshIndex) {
         const refreshed = await this.refreshCurrentLocation({ silent: false, fromTap: true });
         if (refreshed) {
-          this.setData({
+          const nextState = {
             selectedCityRaw: "",
             selectedCityLabel: ""
-          });
+          };
+          this.setData(nextState);
+          this.syncHasActiveFilter(nextState);
           this.syncRegionScopeWithCity(this.data.currentCityRaw, { preserveRegion: false });
           await this.refreshList();
         }
@@ -585,11 +617,13 @@ Page({
       }
 
       const isFollowCurrentCity = isSameCity(cityOption.value, currentCityRaw);
-      this.setData({
+      const nextState = {
         selectedCityRaw: isFollowCurrentCity ? "" : cityOption.value,
         selectedCityLabel: isFollowCurrentCity ? "" : cityOption.label
-      });
+      };
+      this.setData(nextState);
       this.syncRegionScopeWithCity(cityOption.value, { preserveRegion: false });
+      this.syncHasActiveFilter(nextState);
       await this.refreshList();
       logger.info("home_city_tap_end", {
         action: isFollowCurrentCity ? "follow_location" : "switch_city",
@@ -638,6 +672,7 @@ Page({
     }
 
     this.setData({ selectedRegionIndex: selectedIndex });
+    this.syncHasActiveFilter({ selectedRegionIndex: selectedIndex });
     await this.refreshList();
   },
 
@@ -652,6 +687,7 @@ Page({
     }
 
     this.setData({ selectedTypeIndex: selectedIndex });
+    this.syncHasActiveFilter({ selectedTypeIndex: selectedIndex });
     await this.refreshList();
   },
 
@@ -666,6 +702,7 @@ Page({
     }
 
     this.setData({ selectedPriceIndex: selectedIndex });
+    this.syncHasActiveFilter({ selectedPriceIndex: selectedIndex });
     await this.refreshList();
   },
 
@@ -686,14 +723,19 @@ Page({
       }
 
       if (selectedIndex === 1) {
-        this.setData({
+        const nextState = {
           keyword: "",
           keywordDraft: "",
+          selectedCityRaw: "",
+          selectedCityLabel: "",
           selectedRegionIndex: 0,
           selectedTypeIndex: 0,
           selectedPriceIndex: 0,
           selectedListSort: HOUSE_SORT_BY.LATEST
-        });
+        };
+        this.setData(nextState);
+        this.syncRegionScopeWithCity(this.data.currentCityRaw, { preserveRegion: false });
+        this.syncHasActiveFilter(nextState);
         await this.refreshList();
       }
     } catch (error) {
@@ -711,6 +753,7 @@ Page({
     }
 
     this.setData({ selectedListSort: sortValue });
+    this.syncHasActiveFilter({ selectedListSort: sortValue });
     if (sortValue === "areaAsc") {
       this.syncDisplayLists();
       return;
@@ -803,12 +846,64 @@ Page({
           }
         }
       } else if (!silent) {
-        wx.showToast({ title: locationErrorText, icon: "none" });
+        toast.error(locationErrorText);
       }
 
       return false;
     } finally {
       this.setData({ locationLoading: false });
     }
+  },
+
+  initTopBarMetrics() {
+    const systemInfo = wx.getSystemInfoSync();
+    const statusBarHeight = Number(systemInfo?.statusBarHeight || 0);
+
+    this.setData({
+      statusBarHeight,
+      topBarStyle: `padding-top:${statusBarHeight}px;`,
+      scrollAreaStyle: `padding-top:${statusBarHeight}px;`
+    });
+  },
+
+  measureTopBarHeight() {
+    const query = wx.createSelectorQuery();
+    query.select("#homeTopBar").boundingClientRect();
+    query.exec((result = []) => {
+      const rect = result[0];
+      if (!rect || !rect.height) {
+        return;
+      }
+
+      this.setData({
+        scrollAreaStyle: `padding-top:${rect.height}px;`
+      });
+    });
+  },
+
+  syncHasActiveFilter(nextData = {}) {
+    this.setData({
+      hasActiveFilter: getHasActiveFilter({
+        ...this.data,
+        ...nextData
+      })
+    });
+  },
+
+  async resetFilter() {
+    const nextState = {
+      keyword: "",
+      keywordDraft: "",
+      selectedCityRaw: "",
+      selectedCityLabel: "",
+      selectedRegionIndex: 0,
+      selectedTypeIndex: 0,
+      selectedPriceIndex: 0,
+      selectedListSort: HOUSE_SORT_BY.LATEST
+    };
+    this.setData(nextState);
+    this.syncRegionScopeWithCity(this.data.currentCityRaw, { preserveRegion: false });
+    this.syncHasActiveFilter(nextState);
+    await this.refreshList();
   }
 });

@@ -1,9 +1,19 @@
 <view class="container profile-page">
+  <view wx:if="{{loading && isLoggedIn && !userInfo}}" class="profile-loading card">
+    <skeleton type="profile" />
+  </view>
+
   <view class="card hero-card" wx:if="{{isLoggedIn && userInfo}}">
     <view class="hero-top">
       <view class="hero-main">
         <view class="hero-avatar-wrap" bindtap="onAvatarTap">
-          <image class="hero-avatar" src="{{userInfo.avatarUrl || '/assets/images/avatar-placeholder.png'}}" mode="aspectFill" />
+          <lazy-image
+            class="hero-avatar"
+            src="{{userInfo.avatarUrl || '/assets/images/avatar-placeholder.png'}}"
+            mode="aspectFill"
+            radius="var(--radius-pill)"
+            height="108rpx"
+          />
           <view class="avatar-mask">{{avatarUploading ? '上传中' : '更换头像'}}</view>
         </view>
 
@@ -105,7 +115,13 @@
           bindtap="onSelectAccountTap"
         >
           <view class="account-inline-avatar {{item.isActive ? 'active' : ''}}">
-            <image class="account-inline-image" src="{{item.avatarUrl}}" mode="aspectFill" />
+            <lazy-image
+              class="account-inline-image"
+              src="{{item.avatarUrl}}"
+              mode="aspectFill"
+              radius="var(--radius-pill)"
+              height="80rpx"
+            />
           </view>
           <text class="account-inline-name {{item.isActive ? 'active' : ''}}">{{item.displayName}}</text>
         </view>
@@ -125,8 +141,11 @@
   <view class="account-switcher-mask" wx:if="{{accountSwitcherVisible}}" bindtap="onCloseAccountSwitcher">
     <view class="account-switcher-panel" catchtap="noop">
       <view class="account-switcher-header">
-        <view class="account-switcher-title">切换账号</view>
-        <view class="account-switcher-subtitle">已缓存的账号可直接切换，无需重复输入登录信息</view>
+        <view>
+          <view class="account-switcher-title">切换账号</view>
+          <view class="account-switcher-subtitle">已缓存的账号可直接切换，无需重复输入登录信息</view>
+        </view>
+        <view class="tap-area account-switcher-close" bindtap="onCloseAccountSwitcher">×</view>
       </view>
 
       <view class="account-card-list">
@@ -140,7 +159,13 @@
           <view class="account-card-remove" data-user-id="{{item.userId}}" catchtap="onRemoveAccountTap">
             {{removingAccountId === item.userId ? '处理中' : '删除记录'}}
           </view>
-          <image class="account-card-avatar" src="{{item.avatarUrl}}" mode="aspectFill" />
+          <lazy-image
+            class="account-card-avatar"
+            src="{{item.avatarUrl}}"
+            mode="aspectFill"
+            radius="var(--radius-pill)"
+            height="92rpx"
+          />
           <view class="account-card-main">
             <view class="account-card-title-row">
               <text class="account-card-name">{{item.displayName}}</text>

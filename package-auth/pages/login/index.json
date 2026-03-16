@@ -1,5 +1,8 @@
 {
   "navigationBarTitleText": "登录",
   "backgroundColor": "#f7f8fa",
-  "backgroundTextStyle": "dark"
+  "backgroundTextStyle": "dark",
+  "usingComponents": {
+    "lazy-image": "/components/lazy-image/index"
+  }
 }

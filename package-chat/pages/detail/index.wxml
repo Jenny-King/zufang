@@ -1,5 +1,8 @@
 <view class="chat-detail-page">
-  <view wx:if="{{errorText}}" class="error-box">{{errorText}}</view>
+  <view wx:if="{{errorText}}" class="error-box">
+    <text class="error-box__text">{{errorText}}</text>
+    <button class="error-box__retry" bindtap="loadMessages">重试</button>
+  </view>
 
   <scroll-view
     class="message-scroll"
@@ -7,20 +10,29 @@
     scroll-with-animation
     scroll-into-view="{{scrollToViewId}}"
   >
-    <view
-      wx:for="{{messageList}}"
-      wx:key="_viewId"
-      id="{{item._viewId}}"
-      class="message-row {{item.isSelf ? 'self' : 'other'}}"
-    >
-      <view class="bubble">
-        <text class="content">{{item.content}}</text>
-        <text class="time">{{item.displayTime}}</text>
+    <skeleton wx:if="{{loading && !messageList.length}}" type="list-item" count="{{4}}" />
+
+    <empty-state
+      wx:elif="{{!loading && messageList.length === 0}}"
+      title="暂无消息"
+      subtitle="发一条开始聊天吧"
+    />
+
+    <block wx:else>
+      <view
+        wx:for="{{messageList}}"
+        wx:key="_viewId"
+        id="{{item._viewId}}"
+      >
+        <view wx:if="{{item.showTime}}" class="time-divider">{{item.timeLabel}}</view>
+        <view class="message-row {{item.isSelf ? 'self' : 'other'}}">
+          <view class="bubble">
+            <text class="content">{{item.content}}</text>
+            <text class="time">{{item.displayTime}}</text>
+          </view>
+        </view>
       </view>
-    </view>
-    <view wx:if="{{!loading && messageList.length === 0}}" class="empty-tip">
-      暂无消息，发一条开始聊天吧
-    </view>
+    </block>
   </scroll-view>
 
   <view class="input-bar">
